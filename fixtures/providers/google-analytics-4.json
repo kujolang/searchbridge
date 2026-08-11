@@ -1,0 +1,1 @@
+{"dimensionHeaders":[{"name":"date"},{"name":"pagePath"}],"metricHeaders":[{"name":"sessions"},{"name":"screenPageViews"}],"rows":[{"dimensionValues":[{"value":"20260801"},{"value":"/agents/"}],"metricValues":[{"value":"42"},{"value":"61"}]}]}

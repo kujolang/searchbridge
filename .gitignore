@@ -1,0 +1,7 @@
+.searchbridge/
+__pycache__/
+*.pyc
+.env
+*.token
+*.credentials.json
+.DS_Store
