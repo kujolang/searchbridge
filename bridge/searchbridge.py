@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,6 +20,8 @@ VERSION = "0.1.0"
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "fixtures" / "providers"
 MAX_BYTES = 8 * 1024 * 1024
+DETERMINISTIC_TIME = "1970-01-01T00:00:00Z"
+POLICY = {"timeout": 30.0, "retries": 2, "deterministic": False, "offline": False}
 UA = f"Kujo-SearchBridge/{VERSION} (+https://github.com/kujolang/searchbridge)"
 
 PROVIDERS = {
@@ -26,13 +29,14 @@ PROVIDERS = {
     "google-analytics-4": {"capabilities": ["analytics"], "env": ["SEARCHBRIDGE_GA4_TOKEN"], "write": False},
     "pagespeed-insights": {"capabilities": ["page.performance"], "env": [], "optional_env": ["SEARCHBRIDGE_PAGESPEED_KEY"], "write": False},
     "crux": {"capabilities": ["field.performance"], "env": ["SEARCHBRIDGE_CRUX_KEY"], "write": False},
-    "indexnow": {"capabilities": ["index.submission"], "env": ["SEARCHBRIDGE_INDEXNOW_KEY"], "write": True},
-    "bing-webmaster": {"capabilities": ["search.performance", "backlinks", "index.submission"], "env": ["SEARCHBRIDGE_BING_KEY"], "optional_env": ["SEARCHBRIDGE_BING_TOKEN"], "write": True},
+    "indexnow": {"capabilities": ["index.submission"], "env": ["SEARCHBRIDGE_INDEXNOW_KEY"], "write": True, "write_capabilities": ["index.submission"]},
+    "bing-webmaster": {"capabilities": ["search.performance", "backlinks", "index.submission"], "env": ["SEARCHBRIDGE_BING_KEY"], "optional_env": ["SEARCHBRIDGE_BING_TOKEN"], "write": True, "write_capabilities": ["index.submission"]},
     "ahrefs": {"capabilities": ["backlinks", "keyword.data"], "env": ["SEARCHBRIDGE_AHREFS_TOKEN"], "write": False, "cost_warning": "Most API v3 requests consume Ahrefs API units."},
 }
 
 
 def now() -> str:
+    if POLICY["deterministic"]: return DETERMINISTIC_TIME
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
@@ -42,21 +46,29 @@ def clean_error(exc: Exception) -> str:
     return re.sub(r"(?i)(token|key|authorization)=[^&\s]+", r"\1=[REDACTED]", str(exc))[:200]
 
 
-def request_json(url: str, *, method: str = "GET", body: Any = None, headers: dict[str, str] | None = None, timeout: float = 30) -> tuple[int, Any]:
+def request_json(url: str, *, method: str = "GET", body: Any = None, headers: dict[str, str] | None = None, timeout: float | None = None) -> tuple[int, Any]:
+    if POLICY["offline"]: raise RuntimeError("offline mode blocks live provider requests")
     merged = {"User-Agent": UA, "Accept": "application/json", **(headers or {})}
     encoded = None
     if body is not None:
         encoded = json.dumps(body).encode(); merged["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=encoded, headers=merged, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            raw = response.read(MAX_BYTES + 1)
-            if len(raw) > MAX_BYTES: raise RuntimeError("provider response exceeded 8 MiB")
-            return response.status, json.loads(raw or b"{}")
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError(clean_error(exc)) from None
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-        raise RuntimeError(clean_error(exc)) from None
+    request_timeout = timeout if timeout is not None else float(POLICY["timeout"])
+    last: Exception | None = None
+    for attempt in range(int(POLICY["retries"]) + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=request_timeout) as response:
+                raw = response.read(MAX_BYTES + 1)
+                if len(raw) > MAX_BYTES: raise RuntimeError("provider response exceeded 8 MiB")
+                return response.status, json.loads(raw or b"{}")
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code not in {429, 500, 502, 503, 504} or attempt >= int(POLICY["retries"]): break
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            last = exc
+            if attempt >= int(POLICY["retries"]): break
+        time.sleep(min(0.25 * (2 ** attempt), 2.0))
+    raise RuntimeError(clean_error(last or RuntimeError("provider request failed"))) from None
 
 
 def fixture(name: str) -> Any:
@@ -69,8 +81,11 @@ def bearer(name: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {value}"}
 
 
-def write_result(result: dict[str, Any], path: str | None) -> None:
+def write_result(result: dict[str, Any], path: str | None, max_bytes: int = 1024 * 1024, max_tokens: int = 250000) -> None:
     text = json.dumps(result, indent=2, sort_keys=True) + "\n"
+    size = len(text.encode("utf-8"))
+    if size > max_bytes or size > max_tokens * 4:
+        raise RuntimeError(f"output budget exceeded ({size} bytes)")
     if path:
         target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -210,14 +225,15 @@ def validate_urls(urls: list[str]) -> tuple[str, list[str]]:
     hosts = set()
     for url in urls:
         parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password: raise RuntimeError(f"invalid submission URL: {url}")
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password: raise RuntimeError("invalid submission URL")
+        _ = parsed.port
         normalized.append(urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.query, ""))); hosts.add(parsed.hostname.lower())
     if len(hosts) != 1: raise RuntimeError("submission URLs must share one host")
     return next(iter(hosts)), normalized
 
 
 def command_submit(args: argparse.Namespace) -> dict[str, Any]:
-    if not (args.act and args.yes): raise RuntimeError("submission requires both --act and --yes")
+    if not (args.act and args.yes and args.capability == "index.submission"): raise RuntimeError("submission requires --capability index.submission, --act, and --yes")
     host, urls = validate_urls(args.url)
     if len(urls) > 1000: raise RuntimeError("SearchBridge caps one submission at 1,000 URLs")
     if args.fixture: status = 202
@@ -233,7 +249,7 @@ def command_submit(args: argparse.Namespace) -> dict[str, Any]:
         status = 200
         for url in urls:
             status, _ = request_json("https://ssl.bing.com/webmaster/api.svc/json/SubmitUrl?apikey=" + urllib.parse.quote(key), method="POST", body={"siteUrl": f"https://{host}", "url": url})
-    return {"schema": "searchbridge.submission/v1", "provider": args.provider, "mode": "fixture" if args.fixture else "live", "submitted_at": now(), "status": status, "received": status in {200, 202}, "indexed": False, "urls": urls, "claim": "Receipt means received or accepted; it does not guarantee indexing."}
+    return {"schema": "searchbridge.submission/v1", "provider": args.provider, "mode": "fixture" if args.fixture else "live", "submitted_at": now(), "authorization": {"capability": "index.submission", "act": True, "confirmed": True}, "status": status, "received": status in {200, 202}, "indexed": False, "urls": urls, "claim": "Receipt means received or accepted; it does not guarantee indexing."}
 
 
 def capability_report() -> dict[str, Any]:
@@ -243,13 +259,13 @@ def capability_report() -> dict[str, Any]:
         for name, cfg in PROVIDERS.items():
             if capability not in cfg["capabilities"]: continue
             required = cfg.get("env", []); available = not required or all(os.environ.get(key) for key in required)
-            providers.append({"provider": name, "live_available": available, "fixture_available": True, "write": cfg["write"], "missing_environment": [key for key in required if not os.environ.get(key)]})
+            providers.append({"provider": name, "live_available": available, "fixture_available": True, "write": capability in cfg.get("write_capabilities", []), "missing_environment": [key for key in required if not os.environ.get(key)]})
         rows.append({"capability": capability, "available": any(p["live_available"] for p in providers), "degraded": not any(p["live_available"] for p in providers), "providers": providers})
     return {"schema": "searchbridge.capabilities/v1", "generated_at": now(), "capabilities": rows}
 
 
 def add_common(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--fixture", action="store_true"); p.add_argument("--out"); p.add_argument("--timeout", type=float, default=30); p.add_argument("--limit", type=int, default=100)
+    p.add_argument("--fixture", action="store_true"); p.add_argument("--offline", action="store_true"); p.add_argument("--deterministic", action="store_true"); p.add_argument("--out"); p.add_argument("--timeout", type=float, default=30); p.add_argument("--retries", type=int, default=2); p.add_argument("--limit", type=int, default=100); p.add_argument("--max-output-bytes", type=int, default=1024 * 1024); p.add_argument("--max-output-tokens", type=int, default=250000)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -262,7 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("crux"); add_common(p); p.add_argument("--url"); p.add_argument("--form-factor", choices=["PHONE", "DESKTOP", "TABLET"], default="PHONE")
     p = sub.add_parser("backlinks"); add_common(p); p.add_argument("--provider", choices=["ahrefs", "bing-webmaster"], default="ahrefs"); p.add_argument("--target")
     p = sub.add_parser("keyword-data"); add_common(p); p.add_argument("--keyword"); p.add_argument("--country", default="US")
-    p = sub.add_parser("submit"); p.add_argument("--provider", choices=["indexnow", "bing-webmaster"], default="indexnow"); p.add_argument("--url", action="append", required=True); p.add_argument("--key-location"); p.add_argument("--endpoint"); p.add_argument("--fixture", action="store_true"); p.add_argument("--act", action="store_true"); p.add_argument("--yes", action="store_true"); p.add_argument("--out")
+    p = sub.add_parser("submit"); p.add_argument("--provider", choices=["indexnow", "bing-webmaster"], default="indexnow"); p.add_argument("--url", action="append", required=True); p.add_argument("--key-location"); p.add_argument("--endpoint"); p.add_argument("--fixture", action="store_true"); p.add_argument("--offline", action="store_true"); p.add_argument("--deterministic", action="store_true"); p.add_argument("--timeout", type=float, default=30); p.add_argument("--retries", type=int, default=2); p.add_argument("--max-output-bytes", type=int, default=1024 * 1024); p.add_argument("--max-output-tokens", type=int, default=250000); p.add_argument("--capability"); p.add_argument("--act", action="store_true"); p.add_argument("--yes", action="store_true"); p.add_argument("--out")
     return root
 
 
@@ -277,8 +293,13 @@ def main() -> int:
         else:
             if hasattr(args, "limit") and (args.limit < 1 or args.limit > 1000): raise RuntimeError("--limit must be between 1 and 1000")
             if hasattr(args, "timeout") and (args.timeout <= 0 or args.timeout > 120): raise RuntimeError("--timeout must be between 0 and 120 seconds")
+            if hasattr(args, "retries") and (args.retries < 0 or args.retries > 5): raise RuntimeError("--retries must be between 0 and 5")
+            if hasattr(args, "max_output_bytes") and args.max_output_bytes < 256: raise RuntimeError("--max-output-bytes must be at least 256")
+            if hasattr(args, "max_output_tokens") and args.max_output_tokens < 64: raise RuntimeError("--max-output-tokens must be at least 64")
+            POLICY.update(timeout=getattr(args, "timeout", 30), retries=getattr(args, "retries", 2), deterministic=getattr(args, "deterministic", False), offline=getattr(args, "offline", False))
+            if POLICY["offline"] and not getattr(args, "fixture", False): raise RuntimeError("offline mode requires --fixture for provider commands")
             result = {"search-performance": command_search_performance, "analytics": command_analytics, "inspect-url": command_inspect, "pagespeed": command_pagespeed, "crux": command_crux, "backlinks": command_backlinks, "keyword-data": command_keywords, "submit": command_submit}[args.command](args)
-        write_result(result, getattr(args, "out", None)); return 0
+        write_result(result, getattr(args, "out", None), getattr(args, "max_output_bytes", 1024 * 1024), getattr(args, "max_output_tokens", 250000)); return 0
     except (RuntimeError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"SearchBridge: {clean_error(exc)}", file=sys.stderr); return 1
 

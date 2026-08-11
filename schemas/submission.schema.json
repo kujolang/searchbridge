@@ -2,6 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.kujolang.ai/searchbridge/submission.v1.json",
   "type": "object",
-  "required": ["schema", "provider", "mode", "received", "indexed", "urls"],
-  "properties": {"schema": {"const": "searchbridge.submission/v1"}, "indexed": {"const": false}}
+  "required": ["schema", "provider", "mode", "authorization", "received", "indexed", "urls"],
+  "properties": {
+    "schema": {"const": "searchbridge.submission/v1"},
+    "authorization": {
+      "type": "object",
+      "required": ["capability", "act", "confirmed"],
+      "properties": {"capability": {"const": "index.submission"}, "act": {"const": true}, "confirmed": {"const": true}}
+    },
+    "indexed": {"const": false}
+  }
 }
