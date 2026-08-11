@@ -19,7 +19,7 @@ class RetryHandler(BaseHTTPRequestHandler):
     def log_message(self, *_args): pass
     def do_POST(self):
         type(self).hits += 1
-        self.send_response(429 if type(self).hits == 1 else 202); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(b"{}")
+        self.send_response(429 if type(self).hits == 1 else 202); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
 
 
 class SearchBridgeTests(unittest.TestCase):
