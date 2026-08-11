@@ -21,10 +21,11 @@ provenance but leaves interpretation to agents.
 ./searchbridge pagespeed --fixture
 ./searchbridge crux --fixture
 ./searchbridge backlinks --fixture --provider ahrefs
-./searchbridge submit --provider indexnow --url https://example.com/page --act --yes
+./searchbridge submit --provider indexnow --url https://example.com/page --capability index.submission --act --yes
 ```
 
-All evidence commands accept `--fixture`, `--out`, and provider-appropriate
+All evidence commands accept `--fixture`, `--offline`, `--deterministic`,
+explicit timeout/retry/row/output-byte/output-token budgets, `--out`, and provider-appropriate
 inputs. JSON output uses `searchbridge.result/v1` and records provider,
 capability, retrieved time, fixture/live mode, property/target, and normalized
 rows. Submission is a separate ACT-only command and never implies indexing.
@@ -62,4 +63,7 @@ See [provider research](docs/provider-research.md), [security](docs/security.md)
 
 ```bash
 bash scripts/validate.sh
+python3 scripts/benchmark.py --iterations 100
 ```
+
+See [the 0.1.0 release qualification](docs/release-qualification-0.1.0.md).
