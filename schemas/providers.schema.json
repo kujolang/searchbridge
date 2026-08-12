@@ -18,6 +18,9 @@
           "env_any": {"type": "array", "items": {"type": "string"}},
           "optional_env": {"type": "array", "items": {"type": "string"}},
           "write_capabilities": {"type": "array", "items": {"type": "string"}},
+          "cost_class": {"type": "string"},
+          "request_contract": {"type": "object"},
+          "response_contract": {"type": "object"},
           "cost_warning": {"type": "string"}
         },
         "additionalProperties": false

@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.kujolang.ai/searchbridge/doctor.v1.json",
   "type": "object",
-  "required": ["schema", "ok", "fixture_ready", "runtime", "credentials_required_for_doctor", "live_capabilities", "unavailable_capabilities", "warnings"],
+  "required": ["schema", "ok", "health", "fixture_ready", "runtime", "credentials_required_for_doctor", "live_capabilities", "unavailable_capabilities", "warnings"],
   "properties": {
     "schema": {"const": "searchbridge.doctor/v1"},
     "ok": {"const": true},
+    "health": {"enum": ["healthy", "degraded"]},
     "fixture_ready": {"const": true},
     "runtime": {"const": "kujo-native"},
     "credentials_required_for_doctor": {"const": false},

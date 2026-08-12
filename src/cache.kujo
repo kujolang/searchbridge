@@ -1,0 +1,35 @@
+from src.core import dict_get, failure, success, clean_error
+
+export func credential_independent_request_hash(method, url, body) {
+	mut canonical_url := regex_replace(url, "(?i)([^?&=]*(token|key|secret|credential)[^?&=]*)=([^&]+)", "$1=[REDACTED]")
+	mut canonical_body := ""
+	if type(body) != "null" {
+		canonical_body = regex_replace(to_json(body), "(?i)\"([^\"]*(token|key|secret|credential|authorization)[^\"]*)\":\"[^\"]+\"", "\"$1\":\"[REDACTED]\"")
+	}
+	return sha256(to_upper(method) + "\n" + canonical_url + "\n" + canonical_body)
+}
+
+func cache_path(cache_dir, request_hash) { return path_join(cache_dir, request_hash + ".json") }
+
+export func read_cached_response(cache_dir, request_hash, max_age_seconds, now_ms) {
+	if cache_dir == "" { return failure("cache disabled") }
+	path := cache_path(cache_dir, request_hash)
+	if !file_exists(path) { return failure("cache miss") }
+	try {
+		record := parse_json(read_file(path))
+		if dict_get(record, "schema", "") != "searchbridge.cache/v1" || dict_get(record, "request_hash", "") != request_hash { return failure("invalid cache record") }
+		age_ms := now_ms - dict_get(record, "stored_at_ms", 0)
+		if max_age_seconds >= 0 && age_ms > max_age_seconds * 1000 { delete_file(path); return failure("cache expired and was removed") }
+		return success({"status": dict_get(record, "status", 200), "body": dict_get(record, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms})
+	} except cache_error { return failure("cache read failed: " + clean_error(cache_error)) }
+}
+
+export func write_cached_response(cache_dir, request_hash, status, body, now_ms, now_text_value) {
+	if cache_dir == "" { return success(false) }
+	try {
+		if !path_is_dir(cache_dir) { create_dir(cache_dir) }
+		record := {"schema": "searchbridge.cache/v1", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "status": status, "body": body}
+		write_file_atomic(cache_path(cache_dir, request_hash), to_json(record) + "\n", true)
+		return success(true)
+	} except cache_error { return failure("cache write failed: " + clean_error(cache_error)) }
+}

@@ -1,0 +1,59 @@
+from src.core import dict_get, failure, success, providers
+
+export func required_adapter_fields() {
+	return ["name", "capabilities", "write_capabilities", "cost_class", "request_contract", "response_contract", "discovery", "request", "normalization", "write_boundary"]
+}
+
+export func validate_adapter(adapter) {
+	if type(adapter) != "dict" { return failure("adapter must be a dictionary") }
+	mut errors := []
+	for field in required_adapter_fields() { if has_key(adapter, field) == false { errors = push(errors, "missing " + field) } }
+	if has_key(adapter, "name") && (type(adapter["name"]) != "string" || trim(adapter["name"]) == "") { errors = push(errors, "name must be non-empty") }
+	if has_key(adapter, "capabilities") && len(adapter["capabilities"]) == 0 { errors = push(errors, "capabilities must be non-empty") }
+	for hook in ["discovery", "request", "normalization", "write_boundary"] { if has_key(adapter, hook) && type(adapter[hook]) != "dict" { errors = push(errors, hook + " must be a declarative table") } }
+	return {"ok": len(errors) == 0, "errors": errors}
+}
+
+export func register_adapter(registry, adapter) {
+	checked := validate_adapter(adapter)
+	if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
+	mut updated := registry
+	updated[adapter["name"]] := adapter
+	return success(updated)
+}
+
+export func execute_adapter(registry, name, capability, options) {
+	if has_key(registry, name) == false { return failure("adapter not registered: " + name) }
+	adapter := registry[name]
+	if !includes(adapter["capabilities"], capability) { return failure("adapter does not implement capability: " + capability) }
+	return success({"adapter": name, "capability": capability, "cost_class": adapter["cost_class"], "discovery": adapter["discovery"], "request": adapter["request"], "normalization": adapter["normalization"], "write_boundary": adapter["write_boundary"], "options": options})
+}
+
+func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
+
+export func builtin_adapter_contracts() {
+	catalog := providers(); mut contracts := {}
+	for name in keys(catalog) {
+		config := catalog[name]
+		contracts[name] := {
+			"name": name,
+			"capabilities": config["capabilities"],
+			"write_capabilities": config["write_capabilities"],
+			"cost_class": dict_get(config, "cost_class", "provider-quota"),
+			"request_contract": dict_get(config, "request_contract", {}),
+			"response_contract": dict_get(config, "response_contract", {})
+		}
+	}
+	return contracts
+}
+
+export func adapter_conformance_report() {
+	contracts := builtin_adapter_contracts(); mut errors := []
+	for name in sort(keys(contracts)) {
+		contract := contracts[name]
+		for field in ["name", "capabilities", "write_capabilities", "cost_class", "request_contract", "response_contract"] {
+			if has_key(contract, field) == false { errors = push(errors, name + " missing " + field) }
+		}
+	}
+	return {"schema": "searchbridge.adapter-conformance/v1", "ok": len(errors) == 0, "adapter_count": len(keys(contracts)), "errors": errors}
+}

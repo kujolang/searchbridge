@@ -3,6 +3,34 @@ from src.transport import request_json
 
 func mode(options) { if options["fixture"] { return "fixture" }; return "live" }
 
+func provider_body(result) {
+	value := result["value"]
+	if type(value) == "dict" && has_key(value, "body") { return value["body"] }
+	return value
+}
+
+func provider_telemetry(result, rows, options, cost_class) {
+	mut cache_status := "disabled"; if options["fixture"] { cache_status = "fixture" }
+	mut transport := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": cache_status, "provider_cost": {}}
+	if type(result["value"]) == "dict" && has_key(result["value"], "telemetry") { transport = result["value"]["telemetry"] }
+	return {"latency_ms": transport["latency_ms"], "attempts": transport["attempts"], "retries": transport["retries"], "retry_delay_ms": transport["retry_delay_ms"], "response_bytes": transport["response_bytes"], "cache_status": transport["cache_status"], "rows": rows, "truncated": rows >= options["max_total_rows"], "cost_class": cost_class, "provider_cost": transport["provider_cost"]}
+}
+
+func add_operations(envelope_value, result, options, strategy, pages, cost_class) {
+	envelope_value["pagination"] := {"strategy": strategy, "pages_fetched": pages, "page_size": options["page_size"], "max_pages": options["max_pages"], "max_total_rows": options["max_total_rows"]}
+	envelope_value["telemetry"] := provider_telemetry(result, len(envelope_value["rows"]), options, cost_class)
+	return envelope_value
+}
+
+func logical_pages(row_count, page_size) { if row_count == 0 { return 1 }; return to_int((row_count + page_size - 1) / page_size) }
+
+func merge_transport_telemetry(total, result) {
+	item := result["value"]["telemetry"]
+	for field in ["attempts", "retries", "latency_ms", "retry_delay_ms", "response_bytes"] { total[field] := dict_get(total, field, 0) + item[field] }
+	total["cache_status"] := item["cache_status"]; total["provider_cost"] := item["provider_cost"]
+	return total
+}
+
 func load_or_request(fixture_name, url, method, body, headers, options) {
 	if options["fixture"] { return fixture(fixture_name) }
 	return request_json(url, method, body, headers, options, dict_get(options, "transport", null))
@@ -50,17 +78,25 @@ export func command_search_performance(options) {
 	if len(dimensions) == 0 { return failure("--dimensions must contain at least one value") }
 	if provider == "google-search-console" {
 		if property_name == "" { property_name = "sc-domain:example.com" }
-		mut raw_result := null
+		mut raw_result := null; mut pages := 1
 		if options["fixture"] { raw_result = fixture("google-search-console") }
 		else {
 			if options["property"] == "" || options["start_date"] == "" || options["end_date"] == "" { return failure("live GSC requires --property, --start-date, and --end-date") }
 			if !valid_iso_date(options["start_date"]) || !valid_iso_date(options["end_date"]) || options["start_date"] > options["end_date"] { return failure("GSC dates must use valid YYYY-MM-DD values and start-date must not exceed end-date") }
 			auth := bearer("SEARCHBRIDGE_GSC_TOKEN"); if !auth["ok"] { return auth }
 			endpoint := "https://www.googleapis.com/webmasters/v3/sites/" + query_encode(options["property"]) + "/searchAnalytics/query"
-			raw_result = request_json(endpoint, "POST", {"startDate": options["start_date"], "endDate": options["end_date"], "dimensions": dimensions, "rowLimit": options["limit"]}, auth["value"], options, options["transport"])
+			mut all_rows := []; mut page := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
+			while page < options["max_pages"] && len(all_rows) < options["max_total_rows"] {
+				remaining := options["max_total_rows"] - len(all_rows); page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
+				last_result = request_json(endpoint, "POST", {"startDate": options["start_date"], "endDate": options["end_date"], "dimensions": dimensions, "rowLimit": page_limit, "startRow": page * options["page_size"]}, auth["value"], options, options["transport"])
+				if !last_result["ok"] { return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_rows := dict_get(provider_body(last_result), "rows", []); for item in page_rows { all_rows = push(all_rows, item) }; page = page + 1
+				if len(page_rows) < page_limit { break }
+			}
+			pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry})
 		}
 		if !raw_result["ok"] { return raw_result }
-		return success(normalize_gsc(raw_result["value"], dimensions, property_name, mode(options), options["limit"], options["deterministic"]))
+		normalized := normalize_gsc(provider_body(raw_result), dimensions, property_name, mode(options), options["max_total_rows"], options["deterministic"])
+		return success(add_operations(normalized, raw_result, options, "startRow/rowLimit", pages, "provider-quota"))
 	}
 	if provider != "bing-webmaster" { return failure("unsupported search-performance provider") }
 	if property_name == "" { property_name = "https://example.com" }
@@ -71,14 +107,15 @@ export func command_search_performance(options) {
 		raw_result = request_json(request["value"]["url"], "GET", null, request["value"]["headers"], options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
-	raw := raw_result["value"]
+	raw := provider_body(raw_result)
 	mut source_rows := dict_get(raw, "rows", [])
 	if has_key(raw, "d") { source_rows = raw["d"] }
 	mut rows := []
-	for record in take(source_rows, options["limit"]) {
+	for record in take(source_rows, options["max_total_rows"]) {
 		rows = push(rows, {"date": dict_get(record, "Date", null), "query": dict_get(record, "Query", null), "clicks": dict_get(record, "Clicks", null), "impressions": dict_get(record, "Impressions", null), "ctr": dict_get(record, "Ctr", null), "position": dict_get(record, "AvgPosition", null)})
 	}
-	return success(envelope("search.performance", provider, mode(options), rows, {"property": property_name, "dimensions": ["date", "query"]}, options["deterministic"]))
+	value := envelope("search.performance", provider, mode(options), rows, {"property": property_name, "dimensions": ["date", "query"]}, options["deterministic"])
+	return success(add_operations(value, raw_result, options, "provider-list-window", logical_pages(len(rows), options["page_size"]), "provider-quota"))
 }
 
 export func command_analytics(options) {
@@ -87,7 +124,7 @@ export func command_analytics(options) {
 	if !starts_with(property_name, "properties/") { property_name = "properties/" + property_name }
 	dimensions := csv_values(options["dimensions"]); metrics := csv_values(options["metrics"])
 	if len(dimensions) == 0 || len(metrics) == 0 { return failure("--dimensions and --metrics must contain at least one value") }
-	mut raw_result := null
+	mut raw_result := null; mut pages := 1
 	if options["fixture"] { raw_result = fixture("google-analytics-4") }
 	else {
 		if options["property"] == "" { return failure("live GA4 requires --property") }
@@ -96,11 +133,19 @@ export func command_analytics(options) {
 		mut metric_body := []; for name in metrics { metric_body = push(metric_body, {"name": name}) }
 		mut start_date := options["start_date"]; if start_date == "" { start_date = "28daysAgo" }
 		mut end_date := options["end_date"]; if end_date == "" { end_date = "yesterday" }
-		body := {"dateRanges": [{"startDate": start_date, "endDate": end_date}], "dimensions": dim_body, "metrics": metric_body, "limit": to_string(options["limit"])}
-		raw_result = request_json("https://analyticsdata.googleapis.com/v1beta/" + property_name + ":runReport", "POST", body, auth["value"], options, options["transport"])
+		mut all_rows := []; mut page := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
+		while page < options["max_pages"] && len(all_rows) < options["max_total_rows"] {
+			remaining := options["max_total_rows"] - len(all_rows); page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
+			body := {"dateRanges": [{"startDate": start_date, "endDate": end_date}], "dimensions": dim_body, "metrics": metric_body, "limit": to_string(page_limit), "offset": to_string(page * options["page_size"])}
+			last_result = request_json("https://analyticsdata.googleapis.com/v1beta/" + property_name + ":runReport", "POST", body, auth["value"], options, options["transport"])
+			if !last_result["ok"] { return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_body := provider_body(last_result); page_rows := dict_get(page_body, "rows", []); for item in page_rows { all_rows = push(all_rows, item) }; page = page + 1
+			if len(page_rows) < page_limit { break }
+		}
+		pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry})
 	}
 	if !raw_result["ok"] { return raw_result }
-	return success(normalize_analytics(raw_result["value"], dimensions, metrics, property_name, mode(options), options["limit"], options["deterministic"]))
+	normalized := normalize_analytics(provider_body(raw_result), dimensions, metrics, property_name, mode(options), options["max_total_rows"], options["deterministic"])
+	return success(add_operations(normalized, raw_result, options, "offset/limit", pages, "provider-quota"))
 }
 
 export func command_inspect(options) {
@@ -115,9 +160,9 @@ export func command_inspect(options) {
 		raw_result = request_json("https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", "POST", {"inspectionUrl": inspected, "siteUrl": property_name, "languageCode": "en-US"}, auth["value"], options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
-	raw := raw_result["value"]; result := dict_get(raw, "inspectionResult", raw); index := dict_get(result, "indexStatusResult", {})
+	raw := provider_body(raw_result); result := dict_get(raw, "inspectionResult", raw); index := dict_get(result, "indexStatusResult", {})
 	row := {"url": inspected, "verdict": dict_get(index, "verdict", null), "coverage_state": dict_get(index, "coverageState", null), "robots_txt_state": dict_get(index, "robotsTxtState", null), "indexing_state": dict_get(index, "indexingState", null), "last_crawl_time": dict_get(index, "lastCrawlTime", null), "google_canonical": dict_get(index, "googleCanonical", null), "user_canonical": dict_get(index, "userCanonical", null)}
-	return success(envelope("url.inspection", "google-search-console", mode(options), [row], {"property": property_name}, options["deterministic"]))
+	return success(add_operations(envelope("url.inspection", "google-search-console", mode(options), [row], {"property": property_name}, options["deterministic"]), raw_result, options, "none", 1, "provider-quota"))
 }
 
 export func command_pagespeed(options) {
@@ -132,11 +177,11 @@ export func command_pagespeed(options) {
 		raw_result = request_json(endpoint, "GET", null, {}, options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
-	raw := raw_result["value"]; lighthouse := dict_get(raw, "lighthouseResult", {}); categories := dict_get(lighthouse, "categories", {}); audits := dict_get(lighthouse, "audits", {})
+	raw := provider_body(raw_result); lighthouse := dict_get(raw, "lighthouseResult", {}); categories := dict_get(lighthouse, "categories", {}); audits := dict_get(lighthouse, "audits", {})
 	mut lab := {}; for key in keys(categories) { lab[key] := dict_get(categories[key], "score", null) }
 	mut metrics := {}; for key in ["largest-contentful-paint", "cumulative-layout-shift", "total-blocking-time", "server-response-time"] { metrics[key] := dict_get(dict_get(audits, key, {}), "numericValue", null) }
 	row := {"url": target, "strategy": options["strategy"], "lab": lab, "metrics": metrics, "field": dict_get(raw, "loadingExperience", null)}
-	return success(envelope("page.performance", "pagespeed-insights", mode(options), [row], {"target": target, "evidence_classes": ["lab", "field-if-returned"]}, options["deterministic"]))
+	return success(add_operations(envelope("page.performance", "pagespeed-insights", mode(options), [row], {"target": target, "evidence_classes": ["lab", "field-if-returned"]}, options["deterministic"]), raw_result, options, "none", 1, "provider-quota"))
 }
 
 export func command_crux(options) {
@@ -150,9 +195,9 @@ export func command_crux(options) {
 		raw_result = request_json("https://chromeuxreport.googleapis.com/v1/records:queryRecord?key=" + query_encode(key), "POST", {"url": target, "formFactor": options["form_factor"]}, {}, options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
-	record := dict_get(raw_result["value"], "record", raw_result["value"])
+	raw := provider_body(raw_result); record := dict_get(raw, "record", raw)
 	row := {"url": target, "form_factor": options["form_factor"], "metrics": dict_get(record, "metrics", {}), "collection_period": dict_get(record, "collectionPeriod", null)}
-	return success(envelope("field.performance", "crux", mode(options), [row], {"target": target}, options["deterministic"]))
+	return success(add_operations(envelope("field.performance", "crux", mode(options), [row], {"target": target}, options["deterministic"]), raw_result, options, "none", 1, "provider-quota"))
 }
 
 export func command_backlinks(options) {
@@ -164,14 +209,14 @@ export func command_backlinks(options) {
 		if options["fixture"] { raw_result = fixture("ahrefs-backlinks") }
 		else {
 			token := env("SEARCHBRIDGE_AHREFS_TOKEN"); if token == "" { return failure("unavailable capability: set SEARCHBRIDGE_AHREFS_TOKEN or use --fixture") }
-			endpoint := "https://api.ahrefs.com/v3/site-explorer/all-backlinks?target=" + query_encode(target) + "&mode=domain&select=url_from%2Curl_to%2Canchor%2Cfirst_seen%2Clast_visited%2Cis_dofollow&limit=" + to_string(options["limit"])
+			endpoint := "https://api.ahrefs.com/v3/site-explorer/all-backlinks?target=" + query_encode(target) + "&mode=domain&select=url_from%2Curl_to%2Canchor%2Cfirst_seen%2Clast_visited%2Cis_dofollow&limit=" + to_string(options["max_total_rows"])
 			raw_result = request_json(endpoint, "GET", null, {"Authorization": "Bearer " + token}, options, options["transport"])
 		}
 		if !raw_result["ok"] { return raw_result }
-		raw := raw_result["value"]; source := dict_get(raw, "backlinks", dict_get(raw, "rows", [])); mut rows := []
-		for item in take(source, options["limit"]) { rows = push(rows, {"source_url": dict_get(item, "url_from", null), "target_url": dict_get(item, "url_to", null), "anchor": dict_get(item, "anchor", null), "first_seen": dict_get(item, "first_seen", null), "last_seen": dict_get(item, "last_visited", null), "nofollow": !dict_get(item, "is_dofollow", true)}) }
+		raw := provider_body(raw_result); source := dict_get(raw, "backlinks", dict_get(raw, "rows", [])); mut rows := []
+		for item in take(source, options["max_total_rows"]) { rows = push(rows, {"source_url": dict_get(item, "url_from", null), "target_url": dict_get(item, "url_to", null), "anchor": dict_get(item, "anchor", null), "first_seen": dict_get(item, "first_seen", null), "last_seen": dict_get(item, "last_visited", null), "nofollow": !dict_get(item, "is_dofollow", true)}) }
 		mut cost := "provider-units"; if options["fixture"] { cost = "none-in-fixture" }
-		return success(envelope("backlinks", provider, mode(options), rows, {"target": target, "estimated_provider_cost": cost}, options["deterministic"]))
+		return success(add_operations(envelope("backlinks", provider, mode(options), rows, {"target": target, "estimated_provider_cost": cost}, options["deterministic"]), raw_result, options, "provider-list-window", logical_pages(len(rows), options["page_size"]), "paid-units"))
 	}
 	if provider != "bing-webmaster" { return failure("unsupported backlinks provider") }
 	if options["fixture"] { raw_result = fixture("bing-backlinks") }
@@ -180,10 +225,10 @@ export func command_backlinks(options) {
 		raw_result = request_json(request["value"]["url"], "GET", null, request["value"]["headers"], options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
-	raw := raw_result["value"]; mut source := dict_get(raw, "rows", []); if has_key(raw, "d") { source = raw["d"] }; mut rows := []
-	for item in take(source, options["limit"]) { rows = push(rows, {"source_url": dict_get(item, "SourceUrl", null), "target_url": dict_get(item, "AnchorUrl", null), "anchor": dict_get(item, "AnchorText", null)}) }
+	raw := provider_body(raw_result); mut source := dict_get(raw, "rows", []); if has_key(raw, "d") { source = raw["d"] }; mut rows := []
+	for item in take(source, options["max_total_rows"]) { rows = push(rows, {"source_url": dict_get(item, "SourceUrl", null), "target_url": dict_get(item, "AnchorUrl", null), "anchor": dict_get(item, "AnchorText", null)}) }
 	mut cost := "provider-quota"; if options["fixture"] { cost = "none-in-fixture" }
-	return success(envelope("backlinks", provider, mode(options), rows, {"target": target, "estimated_provider_cost": cost}, options["deterministic"]))
+	return success(add_operations(envelope("backlinks", provider, mode(options), rows, {"target": target, "estimated_provider_cost": cost}, options["deterministic"]), raw_result, options, "provider-list-window", logical_pages(len(rows), options["page_size"]), "provider-quota"))
 }
 
 export func command_keywords(options) {
@@ -193,13 +238,13 @@ export func command_keywords(options) {
 	if options["fixture"] { raw_result = fixture("ahrefs-keywords") }
 	else {
 		token := env("SEARCHBRIDGE_AHREFS_TOKEN"); if token == "" { return failure("unavailable capability: set SEARCHBRIDGE_AHREFS_TOKEN or use --fixture") }
-		endpoint := "https://api.ahrefs.com/v3/keywords-explorer/overview?keywords=" + query_encode(keyword) + "&country=" + query_encode(to_lower(options["country"])) + "&select=keyword%2Cvolume%2Cdifficulty%2Ccpc&limit=" + to_string(options["limit"])
+		endpoint := "https://api.ahrefs.com/v3/keywords-explorer/overview?keywords=" + query_encode(keyword) + "&country=" + query_encode(to_lower(options["country"])) + "&select=keyword%2Cvolume%2Cdifficulty%2Ccpc&limit=" + to_string(options["max_total_rows"])
 		raw_result = request_json(endpoint, "GET", null, {"Authorization": "Bearer " + token}, options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
-	raw := raw_result["value"]; source := dict_get(raw, "rows", dict_get(raw, "keywords", [])); mut rows := []
-	for item in take(source, options["limit"]) { rows = push(rows, {"keyword": dict_get(item, "keyword", null), "country": dict_get(item, "country", options["country"]), "volume_estimate": dict_get(item, "volume", null), "difficulty_estimate": dict_get(item, "difficulty", null), "cpc_estimate": dict_get(item, "cpc", null)}) }
-	return success(envelope("keyword.data", "ahrefs", mode(options), rows, {"target": keyword, "measured": false, "third_party_estimates": true}, options["deterministic"]))
+	raw := provider_body(raw_result); source := dict_get(raw, "rows", dict_get(raw, "keywords", [])); mut rows := []
+	for item in take(source, options["max_total_rows"]) { rows = push(rows, {"keyword": dict_get(item, "keyword", null), "country": dict_get(item, "country", options["country"]), "volume_estimate": dict_get(item, "volume", null), "difficulty_estimate": dict_get(item, "difficulty", null), "cpc_estimate": dict_get(item, "cpc", null)}) }
+	return success(add_operations(envelope("keyword.data", "ahrefs", mode(options), rows, {"target": keyword, "measured": false, "third_party_estimates": true}, options["deterministic"]), raw_result, options, "provider-list-window", logical_pages(len(rows), options["page_size"]), "paid-units"))
 }
 
 export func command_submit(options) {
@@ -253,7 +298,18 @@ export func static_command(command, deterministic) {
 	if command == "doctor" {
 		report := capability_report(deterministic); mut live := []; mut unavailable := []
 		for item in report["capabilities"] { if item["available"] { live = push(live, item["capability"]) } else { unavailable = push(unavailable, item["capability"]) } }
-		return success({"schema": "searchbridge.doctor/v1", "ok": true, "fixture_ready": true, "runtime": "kujo-native", "credentials_required_for_doctor": false, "live_capabilities": live, "unavailable_capabilities": unavailable, "warnings": ["Most API v3 requests consume Ahrefs API units."]})
+		mut health := "healthy"; if len(unavailable) > 0 { health = "degraded" }
+		return success({"schema": "searchbridge.doctor/v1", "ok": true, "health": health, "fixture_ready": true, "runtime": "kujo-native", "credentials_required_for_doctor": false, "live_capabilities": live, "unavailable_capabilities": unavailable, "warnings": ["Most API v3 requests consume Ahrefs API units."]})
 	}
 	return failure("unknown command")
+}
+
+export func pagination_contract_probe() {
+	page_size := 2; max_pages := 5; max_total_rows := 3; mut rows := []; mut page := 0
+	while page < max_pages && len(rows) < max_total_rows {
+		remaining := max_total_rows - len(rows); requested := page_size; if requested > remaining { requested = remaining }
+		mut i := 0; while i < requested { rows = push(rows, {"page": page, "offset": page * page_size + i}); i = i + 1 }
+		page = page + 1
+	}
+	return {"rows": rows, "pages_fetched": page, "last_page_requested": max_total_rows % page_size}
 }

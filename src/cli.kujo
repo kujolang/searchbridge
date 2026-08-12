@@ -1,21 +1,24 @@
 from src.core import VERSION, failure, clean_error, utf8_size
 from src.commands import static_command, command_search_performance, command_analytics, command_inspect, command_pagespeed, command_crux, command_backlinks, command_keywords, command_submit
+from src.config import load_profile, environment_overrides
+from src.adapters import adapter_conformance_report
 
-func bool_flags() { return ["fixture", "offline", "deterministic", "act", "yes"] }
-func value_flags() { return ["out", "timeout", "retries", "limit", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "key-location", "endpoint", "capability"] }
+func bool_flags() { return ["fixture", "offline", "replay", "deterministic", "act", "yes"] }
+func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency"] }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
-func commands() { return ["doctor", "capabilities", "providers", "version", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
+func commands() { return ["doctor", "capabilities", "providers", "version", "adapter-conformance", "batch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
 
 func default_options() {
 	return {
-		"fixture": false, "offline": false, "deterministic": false, "act": false, "yes": false,
-		"out": "", "timeout": 30.0, "retries": 2, "limit": 100,
+		"fixture": false, "offline": false, "replay": false, "deterministic": false, "act": false, "yes": false,
+		"out": "", "timeout": 30.0, "retries": 2, "limit": 100, "page_size": 100, "max_pages": 10, "max_total_rows": 1000,
 		"max_output_bytes": 1048576, "max_output_tokens": 250000,
 		"provider": "", "property": "", "start_date": "", "end_date": "",
 		"dimensions": "", "metrics": "", "url": "", "urls": [],
 		"strategy": "mobile", "form_factor": "PHONE", "target": "", "keyword": "",
-		"country": "US", "key_location": "", "endpoint": "", "capability": "", "transport": null
+		"country": "US", "key_location": "", "endpoint": "", "capability": "", "transport": null,
+		"format": "json", "cache_dir": "", "cache_max_age": 86400, "config": "", "profile": "", "health_policy": "info", "degraded_exit_code": 3, "require_capabilities": "", "commands": "", "max_concurrency": 4
 	}
 }
 
@@ -33,7 +36,7 @@ export func parse_options(tokens) {
 		if equals >= 0 { inline_value = substring(raw, equals + 1, len(raw)); raw = substring(raw, 0, equals); has_inline = true }
 		if includes(bool_flags(), raw) {
 			if has_inline { return failure("option --" + raw + " does not take a value") }
-			options[option_key(raw)] = true
+			options[option_key(raw)] = true; seen = push(seen, option_key(raw))
 		} else if includes(value_flags(), raw) {
 			mut value := inline_value
 			if !has_inline {
@@ -43,24 +46,34 @@ export func parse_options(tokens) {
 			if value == "" { return failure("missing value for --" + raw) }
 			if raw == "url" { options["urls"] = push(options["urls"], value); options["url"] = value }
 			else {
-				if includes(seen, raw) { return failure("duplicate option --" + raw) }
-				options[option_key(raw)] = value; seen = push(seen, raw)
+				if includes(seen, option_key(raw)) { return failure("duplicate option --" + raw) }
+				options[option_key(raw)] = value; seen = push(seen, option_key(raw))
 			}
 		} else { return failure("unknown option --" + raw) }
 		i = i + 1
 	}
+	profile := load_profile(options["config"], options["profile"]); if !profile["ok"] { return profile }
+	for key in keys(profile["value"]) { if !includes(seen, key) { options[key] = profile["value"][key] } }
+	for key in keys(environment_overrides()) { if !includes(seen, key) { options[key] = environment_overrides()[key] } }
 	try {
 		options["timeout"] = to_float(options["timeout"])
 		options["retries"] = to_int(options["retries"])
 		options["limit"] = to_int(options["limit"])
+		options["page_size"] = to_int(options["page_size"]); options["max_pages"] = to_int(options["max_pages"]); options["max_total_rows"] = to_int(options["max_total_rows"])
 		options["max_output_bytes"] = to_int(options["max_output_bytes"])
 		options["max_output_tokens"] = to_int(options["max_output_tokens"])
+		options["cache_max_age"] = to_int(options["cache_max_age"]); options["degraded_exit_code"] = to_int(options["degraded_exit_code"]); options["max_concurrency"] = to_int(options["max_concurrency"])
 	} except number_error { return failure("numeric option contains an invalid value") }
 	if options["timeout"] <= 0 || options["timeout"] > 120 { return failure("--timeout must be between 0 and 120 seconds") }
 	if options["retries"] < 0 || options["retries"] > 5 { return failure("--retries must be between 0 and 5") }
 	if options["limit"] < 1 || options["limit"] > 1000 { return failure("--limit must be between 1 and 1000") }
+	if options["page_size"] < 1 || options["page_size"] > 25000 || options["max_pages"] < 1 || options["max_pages"] > 1000 || options["max_total_rows"] < 1 || options["max_total_rows"] > 100000 { return failure("pagination budgets are outside supported bounds") }
 	if options["max_output_bytes"] < 256 { return failure("--max-output-bytes must be at least 256") }
 	if options["max_output_tokens"] < 64 { return failure("--max-output-tokens must be at least 64") }
+	if options["cache_max_age"] < 0 || options["max_concurrency"] < 1 || options["max_concurrency"] > 32 { return failure("cache age or concurrency is outside supported bounds") }
+	if !includes(["json", "jsonl"], options["format"]) { return failure("--format must be json or jsonl") }
+	if !includes(["info", "warn", "fail"], options["health_policy"]) { return failure("--health-policy must be info, warn, or fail") }
+	if options["degraded_exit_code"] < 1 || options["degraded_exit_code"] > 125 { return failure("--degraded-exit-code must be between 1 and 125") }
 	return {"ok": true, "value": options}
 }
 
@@ -85,6 +98,7 @@ func validate_command_options(command, options) {
 	if command == "submit" && !includes(["indexnow", "bing-webmaster"], options["provider"]) { return failure("--provider must be indexnow or bing-webmaster") }
 	if !includes(["mobile", "desktop"], options["strategy"]) { return failure("--strategy must be mobile or desktop") }
 	if !includes(["PHONE", "DESKTOP", "TABLET"], options["form_factor"]) { return failure("--form-factor must be PHONE, DESKTOP, or TABLET") }
+	if options["replay"] && options["cache_dir"] == "" { return failure("--replay requires --cache-dir") }
 	return {"ok": true, "value": options}
 }
 
@@ -96,6 +110,8 @@ export func prepare_options(command, tokens) {
 }
 
 export func dispatch(command, options) {
+	if command == "adapter-conformance" { return {"ok": true, "value": adapter_conformance_report()} }
+	if command == "batch" { return command_batch(options) }
 	if includes(["doctor", "capabilities", "providers", "version"], command) { return static_command(command, options["deterministic"]) }
 	if command == "search-performance" { return command_search_performance(options) }
 	if command == "analytics" { return command_analytics(options) }
@@ -108,7 +124,36 @@ export func dispatch(command, options) {
 	return failure("unknown command: " + command)
 }
 
+func command_batch(options) {
+	requested := split(options["commands"], ",")
+	if options["commands"] == "" { requested = ["search-performance", "analytics", "pagespeed", "crux", "backlinks", "keyword-data"] }
+	mut results := []; mut succeeded := 0; mut failed := 0
+	for raw in requested {
+		name := trim(raw)
+		if name == "" { continue }
+		if !includes(["search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data"], name) { return failure("batch only accepts independent read commands") }
+		mut item_options := {}; for key in keys(options) { item_options[key] := options[key] }; item_options["provider"] = ""
+		item_options = apply_command_defaults(name, item_options); result := dispatch(name, item_options)
+		if result["ok"] { succeeded = succeeded + 1; results = push(results, {"command": name, "ok": true, "value": result["value"]}) }
+		else { failed = failed + 1; results = push(results, {"command": name, "ok": false, "error": clean_error(result["error"])}) }
+	}
+	return {"ok": true, "value": {"schema": "searchbridge.batch/v1", "bounded_concurrency": options["max_concurrency"], "execution": "bounded-sequential", "succeeded": succeeded, "failed": failed, "results": results}}
+}
+
 export func render_output(value, options) {
+	if options["format"] == "jsonl" && type(value) == "dict" && has_key(value, "rows") {
+		mut total := 0
+		for row in value["rows"] {
+			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "row": row}) + "\n"
+			total = total + utf8_size(line); if total > options["max_output_bytes"] || total > options["max_output_tokens"] * 4 { return failure("output budget exceeded (" + to_string(total) + " bytes)") }
+		}
+		if options["out"] != "" { write_file(options["out"], "", true) }
+		for row in value["rows"] {
+			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "row": row}) + "\n"
+			if options["out"] != "" { append_file(options["out"], line) } else { print(trim_end(line)) }
+		}
+		return {"ok": true, "value": "", "streamed": true}
+	}
 	text := to_json(value) + "\n"
 	size := utf8_size(text)
 	if size > options["max_output_bytes"] || size > options["max_output_tokens"] * 4 { return failure("output budget exceeded (" + to_string(size) + " bytes)") }
@@ -125,10 +170,12 @@ func print_help() {
 	print("Usage: ./searchbridge <command> [options]")
 	print("")
 	print("Commands: doctor, capabilities, providers, version, search-performance,")
-	print("          analytics, inspect-url, pagespeed, crux, backlinks, keyword-data, submit")
+	print("          analytics, inspect-url, pagespeed, crux, backlinks, keyword-data, batch, submit")
 	print("")
 	print("Common options: --fixture --offline --deterministic --out PATH")
-	print("                --timeout SEC --retries N --limit N")
+	print("                --timeout SEC --retries N --limit N --format json|jsonl")
+	print("                --page-size N --max-pages N --max-total-rows N")
+	print("                --config PATH --profile NAME --cache-dir PATH --replay")
 	print("                --max-output-bytes N --max-output-tokens N")
 	print("Run README examples for provider-specific options.")
 }
@@ -146,6 +193,13 @@ export func run_cli(argv) {
 	if !result["ok"] { eprint("SearchBridge: " + clean_error(result["error"])); return 1 }
 	rendered := render_output(result["value"], options)
 	if !rendered["ok"] { eprint("SearchBridge: " + rendered["error"]); return 1 }
-	print(trim_end(rendered["value"]))
+	if has_key(rendered, "streamed") == false { print(trim_end(rendered["value"])) }
+	if includes(["doctor", "capabilities"], command) && options["health_policy"] == "fail" {
+		required := split(options["require_capabilities"], ","); unavailable := []
+		if has_key(result["value"], "unavailable_capabilities") { unavailable = result["value"]["unavailable_capabilities"] }
+		if command == "capabilities" { for item in result["value"]["capabilities"] { if item["degraded"] { unavailable = push(unavailable, item["capability"]) } } }
+		for capability in required { if capability != "" && includes(unavailable, capability) { return options["degraded_exit_code"] } }
+		if options["require_capabilities"] == "" && len(unavailable) > 0 { return options["degraded_exit_code"] }
+	}
 	return 0
 }

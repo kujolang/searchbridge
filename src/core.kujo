@@ -1,6 +1,6 @@
 # SearchBridge shared contracts, provider catalog, normalization, and safety helpers.
 
-export VERSION := "0.2.0"
+export VERSION := "0.2.1"
 export RESULT_SCHEMA := "searchbridge.result/v1"
 export SUBMISSION_SCHEMA := "searchbridge.submission/v1"
 export DETERMINISTIC_TIME := "1970-01-01T00:00:00Z"
@@ -13,13 +13,13 @@ export func dict_get(record, key, fallback) {
 
 export func providers() {
 	return {
-		"google-search-console": {"capabilities": ["search.performance", "url.inspection"], "env": ["SEARCHBRIDGE_GSC_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": []},
-		"google-analytics-4": {"capabilities": ["analytics"], "env": ["SEARCHBRIDGE_GA4_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": []},
-		"pagespeed-insights": {"capabilities": ["page.performance"], "env": [], "env_any": [], "optional_env": ["SEARCHBRIDGE_PAGESPEED_KEY"], "write_capabilities": []},
-		"crux": {"capabilities": ["field.performance"], "env": ["SEARCHBRIDGE_CRUX_KEY"], "env_any": [], "optional_env": [], "write_capabilities": []},
-		"indexnow": {"capabilities": ["index.submission"], "env": ["SEARCHBRIDGE_INDEXNOW_KEY"], "env_any": [], "optional_env": [], "write_capabilities": ["index.submission"]},
-		"bing-webmaster": {"capabilities": ["search.performance", "backlinks", "index.submission"], "env": [], "env_any": ["SEARCHBRIDGE_BING_KEY", "SEARCHBRIDGE_BING_TOKEN"], "optional_env": [], "write_capabilities": ["index.submission"]},
-		"ahrefs": {"capabilities": ["backlinks", "keyword.data"], "env": ["SEARCHBRIDGE_AHREFS_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_warning": "Most API v3 requests consume Ahrefs API units."}
+		"google-search-console": {"capabilities": ["search.performance", "url.inspection"], "env": ["SEARCHBRIDGE_GSC_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "startRow/rowLimit", "max_page_size": 25000}, "response_contract": {"rows": "rows[]"}},
+		"google-analytics-4": {"capabilities": ["analytics"], "env": ["SEARCHBRIDGE_GA4_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "offset/limit"}, "response_contract": {"rows": "rows[]"}},
+		"pagespeed-insights": {"capabilities": ["page.performance"], "env": [], "env_any": [], "optional_env": ["SEARCHBRIDGE_PAGESPEED_KEY"], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "none"}, "response_contract": {"rows": "single"}},
+		"crux": {"capabilities": ["field.performance"], "env": ["SEARCHBRIDGE_CRUX_KEY"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "none"}, "response_contract": {"rows": "single"}},
+		"indexnow": {"capabilities": ["index.submission"], "env": ["SEARCHBRIDGE_INDEXNOW_KEY"], "env_any": [], "optional_env": [], "write_capabilities": ["index.submission"], "cost_class": "write", "request_contract": {"pagination": "none"}, "response_contract": {"rows": "receipt"}},
+		"bing-webmaster": {"capabilities": ["search.performance", "backlinks", "index.submission"], "env": [], "env_any": ["SEARCHBRIDGE_BING_KEY", "SEARCHBRIDGE_BING_TOKEN"], "optional_env": [], "write_capabilities": ["index.submission"], "cost_class": "provider-quota", "request_contract": {"pagination": "provider-list-window"}, "response_contract": {"rows": "d[]"}},
+		"ahrefs": {"capabilities": ["backlinks", "keyword.data"], "env": ["SEARCHBRIDGE_AHREFS_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "paid-units", "request_contract": {"pagination": "provider-list-window"}, "response_contract": {"rows": "rows[]"}, "cost_warning": "Most API v3 requests consume Ahrefs API units."}
 	}
 }
 
@@ -121,19 +121,7 @@ export func take(values, limit) {
 }
 
 export func query_encode(value) {
-	# Kujo's HTTP client handles UTF-8 URLs. Encode ASCII query delimiters here
-	# so user input cannot change parameter boundaries.
-	mut text := to_string(value)
-	text = replace(text, "%", "%25")
-	text = replace(text, " ", "%20")
-	text = replace(text, "+", "%2B")
-	text = replace(text, "&", "%26")
-	text = replace(text, "=", "%3D")
-	text = replace(text, "?", "%3F")
-	text = replace(text, "#", "%23")
-	text = replace(text, "/", "%2F")
-	text = replace(text, ":", "%3A")
-	return text
+	return encode_uri_component(to_string(value))
 }
 
 func parse_port(authority) {

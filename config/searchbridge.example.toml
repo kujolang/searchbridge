@@ -1,0 +1,19 @@
+[defaults]
+timeout = 30
+retries = 2
+page_size = 500
+max_pages = 10
+max_total_rows = 5000
+format = "json"
+health_policy = "info"
+
+[profiles.ci]
+offline = false
+max_pages = 2
+max_total_rows = 1000
+health_policy = "fail"
+
+[profiles.export]
+format = "jsonl"
+cache_dir = ".searchbridge-cache"
+cache_max_age = 86400

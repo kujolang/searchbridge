@@ -1,6 +1,9 @@
 from src.cli import prepare_options, dispatch, render_output
-from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc
+from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode
 from src.transport import should_retry_status, retry_contract_probe
+from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response
+from src.adapters import validate_adapter, register_adapter, execute_adapter, adapter_conformance_report
+from src.commands import pagination_contract_probe
 
 mut passed := 0
 mut failed := 0
@@ -40,6 +43,8 @@ for capability in caps["capabilities"] {
 	check(write_seen == (capability["capability"] == "index.submission"), "write capability remains isolated: " + capability["capability"])
 }
 check(degraded, "missing credentials degrade individual capabilities")
+check(doctor["value"]["health"] == "degraded", "doctor exposes explicit degraded health")
+check(adapter_conformance_report()["ok"], "built-in adapter contracts conform")
 
 # Every declared read adapter normalizes through a deterministic fixture.
 fixture_cases := [
@@ -79,6 +84,21 @@ check(!render_output(analytics["value"], small_options)["ok"], "byte output budg
 check(!prepare_options("backlinks", ["--fixture", "--limit", "1001"])["ok"], "row limit is bounded")
 bounded_gsc := normalize_gsc({"rows": [{"keys": ["a"]}, {"keys": ["b"]}]}, ["query"], "sc-domain:example.com", "fixture", 1, true)
 check(len(bounded_gsc["rows"]) == 1, "provider rows are bounded after normalization")
+check(analytics["value"]["pagination"]["max_total_rows"] == 1000 && analytics["value"]["telemetry"]["rows"] == len(analytics["value"]["rows"]), "pagination and row telemetry are structured")
+jsonl_options := options_for("analytics", ["--fixture", "--format", "jsonl", "--out", output_path])
+check(render_output(analytics["value"], jsonl_options)["ok"] && len(split(trim(read_file(output_path)), "\n")) == len(analytics["value"]["rows"]), "JSONL rows stream within output budgets")
+delete_file(output_path)
+
+# Credential-independent replay and third-party adapter extension points.
+hash_a := credential_independent_request_hash("GET", "https://example.com/?access_token=one&q=x", {"api_key": "one"})
+hash_b := credential_independent_request_hash("GET", "https://example.com/?access_token=two&q=x", {"api_key": "two"})
+check(hash_a == hash_b, "cache hashes exclude credentials")
+cache_dir := "/tmp/searchbridge-cache-test-" + to_string(current_timestamp()); write_cached_response(cache_dir, hash_a, 200, {"rows": []}, current_timestamp(), "2026-08-12T00:00:00Z")
+check(read_cached_response(cache_dir, hash_b, 60, current_timestamp())["ok"], "approved cache evidence replays by credential-independent hash")
+delete_file(cache_dir + "/" + hash_a + ".json"); os_rmdir(cache_dir)
+third_party := {"name": "example-third-party", "capabilities": ["example.read"], "write_capabilities": [], "cost_class": "free", "request_contract": {}, "response_contract": {}, "discovery": {"kind": "static"}, "request": {"method": "GET", "endpoint": "https://api.example.com/evidence"}, "normalization": {"rows": "rows[]"}, "write_boundary": {"allowed": false}}
+registry := register_adapter({}, third_party)
+check(validate_adapter(third_party)["ok"] && registry["ok"] && execute_adapter(registry["value"], "example-third-party", "example.read", {})["ok"], "third-party adapters register and execute without CLI dispatch edits")
 
 # Submission is fail-closed and URL parsing strips fragments without leaking credentials.
 base_submit := ["--fixture", "--url", "https://example.com/new"]
@@ -107,15 +127,25 @@ check(should_retry_status(503) && !should_retry_status(400), "only transient sta
 check(!probe["failed"]["ok"], "transport retries are bounded")
 check(contains(probe["failed"]["error"], "super-secret") == 0, "transport errors are redacted")
 check(contains(clean_error("Authorization=secret-value"), "secret-value") == 0, "authorization values are redacted")
+check(query_encode("café & 東京/💡") == "caf%C3%A9%20%26%20%E6%9D%B1%E4%BA%AC%2F%F0%9F%92%A1", "RFC 3986 encoder handles UTF-8 and reserved characters")
 
 # Parser rejects ambiguous or invalid input.
 check(!prepare_options("analytics", ["--wat"])["ok"], "unknown flags are rejected")
 check(!prepare_options("analytics", ["--limit", "1", "--limit", "2"])["ok"], "duplicate scalar flags are rejected")
 check(!prepare_options("analytics", ["--offline"])["ok"], "offline mode requires fixtures")
+check(!prepare_options("analytics", ["--replay"])["ok"], "replay requires an explicit cache directory")
+profile_options := prepare_options("analytics", ["--config", "config/searchbridge.example.toml", "--profile", "ci", "--fixture", "--max-pages", "7"])
+check(profile_options["ok"] && profile_options["value"]["max_total_rows"] == 1000 && profile_options["value"]["max_pages"] == 7, "configuration precedence is defaults then profile then explicit CLI")
 check(!prepare_options("pagespeed", ["--strategy", "tablet"])["ok"], "invalid strategy is rejected")
 check(!dispatch("keyword-data", options_for("keyword-data", ["--fixture", "--country", "USA"]))["ok"], "invalid country codes are rejected")
 bad_dates := dispatch("search-performance", options_for("search-performance", ["--property", "sc-domain:example.com", "--start-date", "2026-13-01", "--end-date", "2026-13-02"]))
 check(!bad_dates["ok"] && contains(bad_dates["error"], "dates") == 1, "invalid GSC date ranges fail before authentication")
+batch := dispatch("batch", options_for("batch", ["--fixture", "--offline", "--deterministic", "--commands", "pagespeed,crux", "--max-concurrency", "2"]))
+check(batch["ok"] && batch["value"]["succeeded"] == 2 && batch["value"]["bounded_concurrency"] == 2, "bounded batch preserves independent successes")
+
+# Native provider paging accumulates pages while respecting both hard budgets.
+paged_probe := pagination_contract_probe()
+check(len(paged_probe["rows"]) == 3 && paged_probe["pages_fetched"] == 2 && paged_probe["last_page_requested"] == 1, "provider pagination obeys page and total-row budgets")
 
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }
