@@ -6,7 +6,7 @@ new, evidence-driven opportunities for the next session.
 ## P0 — operational proof
 
 - [ ] [external-blocked] Provision dedicated low-privilege provider test properties and GitHub environment secrets. The workflow, GitHub environment, and sanitized evidence contract are complete; dedicated provider accounts/properties and secret values are not available in the repository session.
-- [ ] Promote Kujo's URI encoder into the next tagged Kujo release. **Release-policy blocked:** Kujo v1.0.2 is prepared and verified at commit `05fe4c382296b716a9a5e31d137d1880b4a6b807`, but Kujo release policy requires an explicit `UNBLOCK_V1_RELEASE` directive before tagging or publication.
+- [ ] Promote Kujo's URI encoder into the next tagged Kujo release. **Release-policy blocked:** Kujo v1.0.2 is prepared and verified at commit `3bc5b4f1634d9883a789a0c2a0e6a266f72b77b2`, but Kujo release policy requires an explicit `UNBLOCK_V1_RELEASE` directive before tagging or publication.
 - [x] Provision an independent release-verification runner. **Evidence:** `.github/workflows/independent-release-verification.yml` runs without a build checkout and `scripts/verify_release.kujo` verifies the `v0.2.4` signature, checksums, attestation, archive, and exact-commit platform smoke.
 
 ## P1 — scale and extension

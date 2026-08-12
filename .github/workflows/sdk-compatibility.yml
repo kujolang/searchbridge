@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: kujolang/kujo
-          ref: 05fe4c382296b716a9a5e31d137d1880b4a6b807
+          ref: 3bc5b4f1634d9883a789a0c2a0e6a266f72b77b2
           path: .runtime/kujo
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
