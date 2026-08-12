@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — 2026-08-12
+
+- Added bounded native pagination, partial-success batches, streaming JSONL, cache/replay, structured secret-free telemetry, and CI health policies.
+- Added declarative third-party adapter contracts, non-secret configuration profiles, public row schemas/examples, golden compatibility documents, and provider snapshots.
+- Replaced local query escaping with Kujo's RFC 3986 UTF-8 `encode_uri_component` builtin.
+- Added cross-platform launcher/package smoke, scheduled live contract checks, upstream drift issues, and signed-release checksum/SBOM/provenance automation.
+
 ## 0.2.0 - 2026-08-12
 
 - Replaced the Python bridge, tests, JSON validator, and benchmark with native Kujo modules.

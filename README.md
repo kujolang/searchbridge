@@ -1,6 +1,6 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-0.2.0-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.2.1-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
@@ -11,20 +11,23 @@ providers. It preserves measurements and provenance without interpreting SEO
 performance, so CLIs, agents, CI jobs, and data pipelines can consume one
 stable contract without coupling themselves to every provider API.
 
-Version 0.2 is dependency-light: the application, provider adapters,
-normalizers, test suite, JSON validation, and benchmark are written in Kujo.
-Only the portable shell launcher and validation orchestrator remain outside the
-language.
+Version 0.2.1 is dependency-light: the application, provider adapters,
+normalizers, test suite, contract gates, release metadata generator, and
+benchmark are written in Kujo. Portable POSIX and PowerShell launchers remain
+small operating-system integration boundaries.
 
 ## Quick start
 
-Install [Kujo v1.0.1 or newer](https://github.com/kujolang/kujo#install), then:
+Install a Kujo build containing `encode_uri_component` (currently Kujo commit
+`517c5369c6349038831951917478eb66100c1924`; the CI and release workflows pin
+it), then:
 
 ```bash
 git clone https://github.com/kujolang/searchbridge.git
 cd searchbridge
 ./searchbridge doctor
 ./searchbridge search-performance --fixture --offline --deterministic
+./searchbridge batch --fixture --offline --commands pagespeed,crux
 ```
 
 The launcher uses `KUJO_BIN` when set, a sibling Kujo release build during
@@ -54,7 +57,46 @@ submitted URL.
 
 Evidence commands support `--fixture`, `--offline`, `--deterministic`, `--out`,
 `--timeout`, `--retries`, `--limit`, `--max-output-bytes`, and
-`--max-output-tokens`. Run `./searchbridge --help` for the command list.
+`--max-output-tokens`. (`--limit` remains a compatibility alias for bounded
+single-window normalization.) Scale and operations controls include `--page-size`,
+`--max-pages`, `--max-total-rows`, `--format jsonl`, `--cache-dir`, `--replay`,
+`--config`, `--profile`, `--health-policy`, and `--degraded-exit-code`. Run
+`./searchbridge --help` for the command list.
+
+## Scale, replay, and CI health
+
+GSC and GA4 use their native page mechanisms; providers that expose only a
+bounded list use a declared `provider-list-window` strategy. Every result
+reports page/row budgets and secret-free telemetry for latency, retries,
+response bytes, row count, truncation, cache state, and cost class. A capped,
+jittered retry honors numeric `Retry-After` values.
+
+```bash
+./searchbridge analytics --property 123 --page-size 1000 \
+  --max-pages 5 --max-total-rows 5000 --format jsonl --out analytics.jsonl
+./searchbridge pagespeed --url https://example.com --cache-dir .cache/searchbridge
+./searchbridge pagespeed --url https://example.com --cache-dir .cache/searchbridge \
+  --replay --offline
+./searchbridge doctor --health-policy fail \
+  --require-capabilities analytics,page.performance --degraded-exit-code 7
+```
+
+Cache keys are hashes of credential-redacted method, URL, and body material;
+records have explicit timestamps and caller-controlled freshness. Cache files
+still contain provider evidence and belong only in access-controlled,
+retention-managed directories. They are never included in releases.
+
+The bounded `batch` command returns `searchbridge.batch/v1` partial-success
+records, so one unavailable read does not discard healthy results. Mutation
+commands cannot enter a batch.
+
+## Configuration profiles
+
+Non-secret defaults can be versioned as TOML using
+[`config/searchbridge.example.toml`](config/searchbridge.example.toml).
+Precedence is defaults, selected profile, `SEARCHBRIDGE_*` option variables,
+then explicit CLI flags. Token, secret, credential, and key fields are rejected
+from config files; provider credentials remain environment-only.
 
 ## Provider capabilities
 
@@ -82,6 +124,9 @@ capability, provider, mode, retrieval time, and normalized rows. Missing source
 fields remain `null` and are never inferred. JSON Schemas live in
 [`schemas/`](schemas/), and deterministic fixtures live in
 [`fixtures/providers/`](fixtures/providers/).
+Capability-specific row schemas and canonical examples are indexed in
+[`docs/row-contracts.md`](docs/row-contracts.md). Immutable 0.2.x golden
+documents protect every public envelope in the compatibility release gate.
 
 ```json
 {
@@ -101,7 +146,7 @@ fields remain `null` and are never inferred. JSON Schemas live in
 - Submission batches are limited to 1,000 HTTP(S) URLs on one validated host; fragments and user-info are rejected.
 - Custom submission endpoints are disabled, closing an SSRF and credential-forwarding surface.
 - Live requests use bounded timeouts, response sizes, retry counts, row counts, and output budgets.
-- Only 429 and transient 5xx responses retry; provider bodies and request headers are never included in errors.
+- Only 429 and transient 5xx responses retry; `Retry-After` is capped and jittered, while provider bodies, URLs, request headers, and row contents are excluded from telemetry and errors.
 - Ahrefs calls may consume paid units. SearchBridge reports the cost class but never estimates SEO outcomes.
 - A submission receipt means accepted or received; it never claims that a URL was indexed.
 
@@ -116,6 +161,9 @@ searchbridge.kujo        stable entrypoint
 src/cli.kujo             argument, budget, and output boundary
 src/commands.kujo        capability routing and provider normalization
 src/transport.kujo       bounded HTTP, retry, and redaction behavior
+src/cache.kujo           credential-independent cache/replay records
+src/config.kujo          non-secret TOML profiles and environment precedence
+src/adapters.kujo        declarative third-party adapter contract and conformance
 src/core.kujo            contracts, catalog, fixtures, and URL safety
 ```
 
@@ -129,14 +177,17 @@ directly.
 bash scripts/validate.sh
 ./searchbridge search-performance --fixture --offline --deterministic
 "${KUJO_BIN:-../kujo/target/release/kujo}" run scripts/benchmark.kujo -- --iterations 100
+"${KUJO_BIN:-../kujo/target/release/kujo}" run examples/ci_quality_gate.kujo
 ```
 
-The validation gate runs 131 native contract assertions, validates emitted
-documents against public schemas, parses every fixture
-and schema, executes CLI smoke tests, runs a benchmark smoke, checks for Python
-runtime dependencies, and checks the diff. CI downloads a checksum-verified,
-pinned Kujo release binary before running the same gate.
+The validation gate runs 145 native contract assertions, validates emitted
+documents and capability rows, proves every 0.2.x golden envelope remains
+readable, checks provider snapshots, executes CLI and benchmark smokes, rejects
+Python runtime dependencies, and checks the diff. CI builds the pinned Kujo
+commit. Separate jobs cover Linux, macOS, Windows, scheduled low-privilege live
+reads, provider drift issue creation, and signed-tag release artifacts.
 
 See [security boundaries](docs/security.md), the [output contract](docs/output-contract.md),
-[provider research](docs/provider-research.md), the [0.2.0 qualification](docs/release-qualification-0.2.0.md),
-and the [next-session backlog](docs/next-session-review.md).
+[provider research](docs/provider-research.md), the [0.2.1 qualification](docs/release-qualification-0.2.1.md),
+the [reproducible release checklist](docs/release-checklist-0.2.x.md), and the
+[next-session backlog](docs/next-session-review-0.3.md).
