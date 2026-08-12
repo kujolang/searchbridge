@@ -1,0 +1,11 @@
+from src.core import failure, success
+
+export func query_evidence(options) {
+	if options["evidence_path"] == "" { return failure("evidence-query requires --evidence-path") }
+	mut query := {"max_rows": options["max_total_rows"]}
+	if options["filter_field"] != "" { query["filter_field"] := options["filter_field"]; query["filter_equals"] := options["filter_equals"] }
+	if options["join_path"] != "" { query["join_path"] := options["join_path"]; query["left_field"] := options["left_field"]; query["right_field"] := options["right_field"] }
+	rows := jsonl_query(options["evidence_path"], query)
+	if type(rows) != "array" { return failure("evidence query failed") }
+	return success({"schema": "searchbridge.evidence-query/v1", "source": options["evidence_path"], "joined": options["join_path"] != "", "rows": rows})
+}

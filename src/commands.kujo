@@ -1,4 +1,4 @@
-from src.core import VERSION, RESULT_SCHEMA, SUBMISSION_SCHEMA, providers, includes, now_text, failure, success, fixture, envelope, capability_report, csv_values, take, query_encode, validate_submission_urls, normalize_submission_url, normalize_gsc, normalize_analytics, dict_get
+from src.core import VERSION, RESULT_SCHEMA, SUBMISSION_SCHEMA, providers, includes, now_text, failure, success, fixture, envelope, capability_report, csv_values, take, query_encode, validate_submission_urls, normalize_submission_url, normalize_gsc, normalize_analytics, dict_get, utf8_size
 from src.transport import request_json
 
 func mode(options) { if options["fixture"] { return "fixture" }; return "live" }
@@ -23,6 +23,29 @@ func add_operations(envelope_value, result, options, strategy, pages, cost_class
 }
 
 func logical_pages(row_count, page_size) { if row_count == 0 { return 1 }; return to_int((row_count + page_size - 1) / page_size) }
+
+func page_stream(options) {
+	if options["format"] != "jsonl" || options["out"] == "" || options["fixture"] { return {"enabled": false, "path": "", "bytes": 0, "rows": 0} }
+	path := options["out"] + ".partial-" + to_string(current_timestamp()); write_file(path, "", true)
+	return {"enabled": true, "path": path, "bytes": 0, "rows": 0}
+}
+
+func stream_page(stream, envelope_value, options) {
+	if !stream["enabled"] { return success(stream) }
+	for row in envelope_value["rows"] {
+		line := to_json({"schema": "searchbridge.row/v1", "capability": envelope_value["capability"], "provider": envelope_value["provider"], "row": row}) + "\n"
+		stream["bytes"] := stream["bytes"] + utf8_size(line); stream["rows"] := stream["rows"] + 1
+		if stream["bytes"] > options["max_output_bytes"] || stream["bytes"] > options["max_output_tokens"] * 4 { delete_file(stream["path"]); return failure("output budget exceeded while streaming provider pages") }
+		append_file(stream["path"], line)
+	}
+	return success(stream)
+}
+
+func finish_page_stream(stream, output_path) {
+	if !stream["enabled"] { return success(false) }
+	try { if file_exists(output_path) { delete_file(output_path) }; rename_file(stream["path"], output_path); return success(true) }
+	except stream_error { if file_exists(stream["path"]) { delete_file(stream["path"]) }; return failure("could not publish streamed JSONL output") }
+}
 
 func merge_transport_telemetry(total, result) {
 	item := result["value"]["telemetry"]
@@ -77,6 +100,7 @@ export func command_search_performance(options) {
 	dimensions := csv_values(options["dimensions"])
 	if len(dimensions) == 0 { return failure("--dimensions must contain at least one value") }
 	if provider == "google-search-console" {
+		mut stream := page_stream(options)
 		if property_name == "" { property_name = "sc-domain:example.com" }
 		mut raw_result := null; mut pages := 1
 		if options["fixture"] { raw_result = fixture("google-search-console") }
@@ -85,18 +109,21 @@ export func command_search_performance(options) {
 			if !valid_iso_date(options["start_date"]) || !valid_iso_date(options["end_date"]) || options["start_date"] > options["end_date"] { return failure("GSC dates must use valid YYYY-MM-DD values and start-date must not exceed end-date") }
 			auth := bearer("SEARCHBRIDGE_GSC_TOKEN"); if !auth["ok"] { return auth }
 			endpoint := "https://www.googleapis.com/webmasters/v3/sites/" + query_encode(options["property"]) + "/searchAnalytics/query"
-			mut all_rows := []; mut page := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
-			while page < options["max_pages"] && len(all_rows) < options["max_total_rows"] {
-				remaining := options["max_total_rows"] - len(all_rows); page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
+			mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
+			while page < options["max_pages"] && emitted_rows < options["max_total_rows"] {
+				remaining := options["max_total_rows"] - emitted_rows; page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
 				last_result = request_json(endpoint, "POST", {"startDate": options["start_date"], "endDate": options["end_date"], "dimensions": dimensions, "rowLimit": page_limit, "startRow": page * options["page_size"]}, auth["value"], options, options["transport"])
-				if !last_result["ok"] { return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_rows := dict_get(provider_body(last_result), "rows", []); for item in page_rows { all_rows = push(all_rows, item) }; page = page + 1
+				if !last_result["ok"] { if stream["enabled"] && file_exists(stream["path"]) { delete_file(stream["path"]) }; return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_rows := dict_get(provider_body(last_result), "rows", []); emitted_rows = emitted_rows + len(page_rows)
+				if stream["enabled"] { normalized_page := normalize_gsc(provider_body(last_result), dimensions, property_name, mode(options), page_limit, options["deterministic"]); streamed := stream_page(stream, normalized_page, options); if !streamed["ok"] { return streamed }; stream = streamed["value"] }
+				else { for item in page_rows { all_rows = push(all_rows, item) } }; page = page + 1
 				if len(page_rows) < page_limit { break }
 			}
-			pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry})
+			pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry}); if stream["enabled"] { published := finish_page_stream(stream, options["out"]); if !published["ok"] { return published } }
 		}
 		if !raw_result["ok"] { return raw_result }
 		normalized := normalize_gsc(provider_body(raw_result), dimensions, property_name, mode(options), options["max_total_rows"], options["deterministic"])
-		return success(add_operations(normalized, raw_result, options, "startRow/rowLimit", pages, "provider-quota"))
+		value := add_operations(normalized, raw_result, options, "startRow/rowLimit", pages, "provider-quota"); if stream["enabled"] { value["_already_streamed"] := true; telemetry := value["telemetry"]; telemetry["rows"] := stream["rows"]; value["telemetry"] = telemetry }
+		return success(value)
 	}
 	if provider != "bing-webmaster" { return failure("unsupported search-performance provider") }
 	if property_name == "" { property_name = "https://example.com" }
@@ -119,6 +146,7 @@ export func command_search_performance(options) {
 }
 
 export func command_analytics(options) {
+	mut stream := page_stream(options)
 	mut property_name := options["property"]
 	if property_name == "" { property_name = "properties/123456" }
 	if !starts_with(property_name, "properties/") { property_name = "properties/" + property_name }
@@ -133,19 +161,22 @@ export func command_analytics(options) {
 		mut metric_body := []; for name in metrics { metric_body = push(metric_body, {"name": name}) }
 		mut start_date := options["start_date"]; if start_date == "" { start_date = "28daysAgo" }
 		mut end_date := options["end_date"]; if end_date == "" { end_date = "yesterday" }
-		mut all_rows := []; mut page := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
-		while page < options["max_pages"] && len(all_rows) < options["max_total_rows"] {
-			remaining := options["max_total_rows"] - len(all_rows); page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
+		mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
+		while page < options["max_pages"] && emitted_rows < options["max_total_rows"] {
+			remaining := options["max_total_rows"] - emitted_rows; page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
 			body := {"dateRanges": [{"startDate": start_date, "endDate": end_date}], "dimensions": dim_body, "metrics": metric_body, "limit": to_string(page_limit), "offset": to_string(page * options["page_size"])}
 			last_result = request_json("https://analyticsdata.googleapis.com/v1beta/" + property_name + ":runReport", "POST", body, auth["value"], options, options["transport"])
-			if !last_result["ok"] { return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_body := provider_body(last_result); page_rows := dict_get(page_body, "rows", []); for item in page_rows { all_rows = push(all_rows, item) }; page = page + 1
+			if !last_result["ok"] { if stream["enabled"] && file_exists(stream["path"]) { delete_file(stream["path"]) }; return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_body := provider_body(last_result); page_rows := dict_get(page_body, "rows", []); emitted_rows = emitted_rows + len(page_rows)
+			if stream["enabled"] { normalized_page := normalize_analytics(page_body, dimensions, metrics, property_name, mode(options), page_limit, options["deterministic"]); streamed := stream_page(stream, normalized_page, options); if !streamed["ok"] { return streamed }; stream = streamed["value"] }
+			else { for item in page_rows { all_rows = push(all_rows, item) } }; page = page + 1
 			if len(page_rows) < page_limit { break }
 		}
-		pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry})
+		pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry}); if stream["enabled"] { published := finish_page_stream(stream, options["out"]); if !published["ok"] { return published } }
 	}
 	if !raw_result["ok"] { return raw_result }
 	normalized := normalize_analytics(provider_body(raw_result), dimensions, metrics, property_name, mode(options), options["max_total_rows"], options["deterministic"])
-	return success(add_operations(normalized, raw_result, options, "offset/limit", pages, "provider-quota"))
+	value := add_operations(normalized, raw_result, options, "offset/limit", pages, "provider-quota"); if stream["enabled"] { value["_already_streamed"] := true; telemetry := value["telemetry"]; telemetry["rows"] := stream["rows"]; value["telemetry"] = telemetry }
+	return success(value)
 }
 
 export func command_inspect(options) {

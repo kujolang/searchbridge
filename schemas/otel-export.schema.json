@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://schemas.kujolang.ai/searchbridge/otel-export.v1.json","type":"object","required":["resourceSpans","resourceMetrics"],"properties":{"resourceSpans":{"type":"array"},"resourceMetrics":{"type":"array"}},"additionalProperties":false}

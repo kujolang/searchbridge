@@ -5,7 +5,7 @@
   "required": ["schema", "capability", "provider", "mode", "retrieved_at", "rows"],
   "properties": {
     "schema": {"const": "searchbridge.result/v1"},
-    "capability": {"enum": ["search.performance", "analytics", "url.inspection", "page.performance", "field.performance", "backlinks", "keyword.data"]},
+    "capability": {"type":"string","pattern":"^[a-z][a-z0-9.-]+$"},
     "provider": {"type": "string", "minLength": 1},
     "mode": {"enum": ["fixture", "live"]},
     "retrieved_at": {"type": "string", "minLength": 20},

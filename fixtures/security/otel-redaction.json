@@ -1,0 +1,5 @@
+[
+  {"rows":[{"url":"https://private.example/path?access_token=secret","query":"confidential phrase"}]},
+  {"headers":{"Authorization":"Bearer secret-token"},"row":{"email":"person@example.com"}},
+  {"request":{"api_key":"secret-key","endpoint":"https://collector.invalid/private"}}
+]

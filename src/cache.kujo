@@ -12,22 +12,53 @@ export func credential_independent_request_hash(method, url, body) {
 func cache_path(cache_dir, request_hash) { return path_join(cache_dir, request_hash + ".json") }
 
 export func read_cached_response(cache_dir, request_hash, max_age_seconds, now_ms) {
+	return read_protected_cached_response(cache_dir, request_hash, max_age_seconds, now_ms, {})
+}
+
+export func read_protected_cached_response(cache_dir, request_hash, max_age_seconds, now_ms, backend) {
 	if cache_dir == "" { return failure("cache disabled") }
 	path := cache_path(cache_dir, request_hash)
 	if !file_exists(path) { return failure("cache miss") }
 	try {
 		record := parse_json(read_file(path))
-		if dict_get(record, "schema", "") != "searchbridge.cache/v1" || dict_get(record, "request_hash", "") != request_hash { return failure("invalid cache record") }
+		if dict_get(record, "request_hash", "") != request_hash { return failure("invalid cache record") }
 		age_ms := now_ms - dict_get(record, "stored_at_ms", 0)
 		if max_age_seconds >= 0 && age_ms > max_age_seconds * 1000 { delete_file(path); return failure("cache expired and was removed") }
-		return success({"status": dict_get(record, "status", 200), "body": dict_get(record, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms})
+		if dict_get(record, "schema", "") == "searchbridge.cache/v2" {
+			key_variable := dict_get(backend, "encryption_key_env", "")
+			if key_variable == "" || env(key_variable) == "" { return failure("encrypted replay requires its configured key environment variable") }
+			ciphertext := dict_get(record, "ciphertext", ""); integrity := dict_get(record, "integrity", ""); key := env(key_variable)
+			integrity_material := request_hash + "\n" + dict_get(record, "stored_at", "") + "\n" + to_string(dict_get(record, "stored_at_ms", 0)) + "\n" + ciphertext
+			if ciphertext == "" || hmac_sha256(key, integrity_material) != integrity { return failure("cache integrity verification failed") }
+			plaintext := aes_decrypt(ciphertext, key)
+			if type(plaintext) != "string" { return failure("cache decryption failed") }
+			payload := parse_json(plaintext)
+			return success({"status": dict_get(payload, "status", 200), "body": dict_get(payload, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms, "protected": true})
+		}
+		if dict_get(backend, "require_encryption", false) { return failure("replay record is not encrypted") }
+		if dict_get(record, "schema", "") != "searchbridge.cache/v1" { return failure("invalid cache record") }
+		return success({"status": dict_get(record, "status", 200), "body": dict_get(record, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms, "protected": false})
 	} except cache_error { return failure("cache read failed: " + clean_error(cache_error)) }
 }
 
 export func write_cached_response(cache_dir, request_hash, status, body, now_ms, now_text_value) {
+	return write_protected_cached_response(cache_dir, request_hash, status, body, now_ms, now_text_value, {})
+}
+
+export func write_protected_cached_response(cache_dir, request_hash, status, body, now_ms, now_text_value, backend) {
 	if cache_dir == "" { return success(false) }
 	try {
 		if !path_is_dir(cache_dir) { create_dir(cache_dir) }
+		key_variable := dict_get(backend, "encryption_key_env", "")
+		if key_variable != "" {
+			key := env(key_variable); if key == "" { return failure("encrypted cache requires its configured key environment variable") }
+			ciphertext := aes_encrypt(to_json({"status": status, "body": body}), key)
+			if type(ciphertext) != "string" { return failure("cache encryption failed") }
+			integrity_material := request_hash + "\n" + now_text_value + "\n" + to_string(now_ms) + "\n" + ciphertext
+			record := {"schema": "searchbridge.cache/v2", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "ciphertext": ciphertext, "integrity": hmac_sha256(key, integrity_material)}
+			write_file_atomic(cache_path(cache_dir, request_hash), to_json(record) + "\n", true)
+			return success(true)
+		}
 		record := {"schema": "searchbridge.cache/v1", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "status": status, "body": body}
 		write_file_atomic(cache_path(cache_dir, request_hash), to_json(record) + "\n", true)
 		return success(true)

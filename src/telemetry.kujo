@@ -1,0 +1,35 @@
+from src.core import dict_get, failure, success, clean_error
+
+export func otel_payload(command, value, service_name, deterministic) {
+	mut attributes := [{"key": "searchbridge.command", "value": {"stringValue": command}}, {"key": "searchbridge.schema", "value": {"stringValue": dict_get(value, "schema", "unknown")}}]
+	if has_key(value, "capability") { attributes = push(attributes, {"key": "searchbridge.capability", "value": {"stringValue": value["capability"]}}) }
+	if has_key(value, "provider") { attributes = push(attributes, {"key": "searchbridge.provider", "value": {"stringValue": value["provider"]}}) }
+	telemetry := dict_get(value, "telemetry", {})
+	mut metrics := []
+	for field in ["latency_ms", "attempts", "retries", "retry_delay_ms", "response_bytes", "rows"] { if has_key(telemetry, field) { metrics = push(metrics, {"name": "searchbridge." + field, "gauge": {"dataPoints": [{"asDouble": to_float(telemetry[field])}]}}) } }
+	for field in ["truncated", "cache_status", "cost_class"] { if has_key(telemetry, field) { attributes = push(attributes, {"key": "searchbridge." + field, "value": {"stringValue": to_string(telemetry[field])}}) } }
+	mut timestamp := to_string(current_timestamp()) + "000000"; if deterministic { timestamp = "0" }
+	resource := {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]}
+	return {"resourceSpans": [{"resource": resource, "scopeSpans": [{"scope": {"name": "searchbridge"}, "spans": [{"traceId": substring(sha256(command + timestamp), 0, 32), "spanId": substring(sha256(timestamp + command), 0, 16), "name": "searchbridge." + command, "kind": 1, "startTimeUnixNano": timestamp, "endTimeUnixNano": timestamp, "attributes": attributes}]}]}], "resourceMetrics": [{"resource": resource, "scopeMetrics": [{"scope": {"name": "searchbridge"}, "metrics": metrics}]}]}
+}
+
+export func validate_otel_privacy(payload) {
+	text := to_lower(to_json(payload))
+	for forbidden in ["http://", "https://", "authorization", "access_token", "api_key", "bearer "] { if contains(text, forbidden) { return failure("OpenTelemetry privacy boundary rejected forbidden payload material") } }
+	return success(true)
+}
+
+export func export_otel(command, value, options, transport) {
+	endpoint := options["otel_endpoint"]
+	if endpoint == "" { return success(false) }
+	if !starts_with(endpoint, "https://") && !starts_with(endpoint, "file:") { return failure("--otel-endpoint must be HTTPS or file:PATH") }
+	payload := otel_payload(command, value, options["otel_service_name"], options["deterministic"]); private := validate_otel_privacy(payload); if !private["ok"] { return private }
+	if starts_with(endpoint, "file:") { append_file(substring(endpoint, 5, len(endpoint)), to_json(payload) + "\n"); return success(true) }
+	mut call_transport := transport; if type(call_transport) == "null" { call_transport = func(url, request_options) { return http_request(url, request_options) } }
+	response := call_transport(endpoint, {"method": "POST", "headers": {"Content-Type": "application/json"}, "body": to_json(payload), "timeout": options["timeout"]})
+	match response {
+		case Ok(value): { status := dict_get(value, "_status", dict_get(value, "status", 0)); if status >= 200 && status < 300 { return success(true) }; return failure("OpenTelemetry collector returned HTTP " + to_string(status)) }
+		case Err(error): { return failure("OpenTelemetry export failed: " + clean_error(error)) }
+		case other: { return failure("OpenTelemetry export failed") }
+	}
+}
