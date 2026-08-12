@@ -1,6 +1,6 @@
-# SearchBridge 0.2.2 completed review
+# SearchBridge 0.2.3 completed review
 
-All items from the 0.2.0 follow-up review were implemented for the 0.2.2
+All items from the 0.2.0 follow-up review were implemented for the 0.2.3
 qualified release. The
 active forward-looking backlog is now
 [`next-session-review-0.3.md`](next-session-review-0.3.md).

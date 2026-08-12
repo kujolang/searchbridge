@@ -1,6 +1,6 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-0.2.2-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.2.3-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
@@ -11,7 +11,7 @@ providers. It preserves measurements and provenance without interpreting SEO
 performance, so CLIs, agents, CI jobs, and data pipelines can consume one
 stable contract without coupling themselves to every provider API.
 
-Version 0.2.2 is dependency-light: the application, provider adapters,
+Version 0.2.3 is dependency-light: the application, provider adapters,
 normalizers, test suite, contract gates, release metadata generator, and
 benchmark are written in Kujo. Portable POSIX and PowerShell launchers remain
 small operating-system integration boundaries.
@@ -188,6 +188,6 @@ commit. Separate jobs cover Linux, macOS, Windows, scheduled low-privilege live
 reads, provider drift issue creation, and signed-tag release artifacts.
 
 See [security boundaries](docs/security.md), the [output contract](docs/output-contract.md),
-[provider research](docs/provider-research.md), the [0.2.2 qualification](docs/release-qualification-0.2.2.md),
+[provider research](docs/provider-research.md), the [0.2.3 qualification](docs/release-qualification-0.2.3.md),
 the [reproducible release checklist](docs/release-checklist-0.2.x.md), and the
 [next-session backlog](docs/next-session-review-0.3.md).

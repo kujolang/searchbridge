@@ -1,13 +1,13 @@
 # SearchBridge next-session review — 0.3
 
-The 0.2.2 production pass closes the previous backlog. These are deliberately
+The 0.2.3 production pass closes the previous backlog. These are deliberately
 new, evidence-driven opportunities for the next session.
 
 ## P0 — operational proof
 
 - [ ] Provision dedicated low-privilege provider test properties and GitHub environment secrets. **Done when:** the scheduled `live-contracts` workflow has a green run for all six read providers and its evidence artifact has been reviewed for redaction.
 - [ ] Promote Kujo's URI encoder into the next tagged Kujo release. **Done when:** SearchBridge CI pins a published checksum-verified Kujo version instead of a source commit.
-- [ ] Provision an independent release-verification runner. **Done when:** a clean machine verifies the `v0.2.2` tag, checksums, GitHub attestation, archive extraction, and platform smoke evidence without using the build checkout.
+- [ ] Provision an independent release-verification runner. **Done when:** a clean machine verifies the `v0.2.3` tag, checksums, GitHub attestation, archive extraction, and platform smoke evidence without using the build checkout.
 
 ## P1 — scale and extension
 
