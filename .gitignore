@@ -8,3 +8,5 @@ __pycache__/
 *.token
 *.credentials.json
 searchbridge-output/
+.searchbridge-cache/
+dist/

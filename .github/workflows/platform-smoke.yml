@@ -1,0 +1,52 @@
+name: platform-smoke
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  KUJO_COMMIT: 517c5369c6349038831951917478eb66100c1924
+jobs:
+  launcher-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          path: searchbridge
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: kujolang/kujo
+          ref: ${{ env.KUJO_COMMIT }}
+          path: kujo
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: stable
+      - run: cargo build --release --manifest-path kujo/Cargo.toml
+      - name: POSIX launcher and package smoke
+        if: runner.os != 'Windows'
+        working-directory: searchbridge
+        env:
+          KUJO_BIN: ${{ github.workspace }}/kujo/target/release/kujo
+        run: |
+          ./searchbridge version
+          ./searchbridge analytics --fixture --offline --deterministic
+          archive="${RUNNER_TEMP}/searchbridge.tar.gz"
+          git archive --format=tar.gz --output="$archive" HEAD
+          test -s "$archive"
+      - name: Windows launcher and package smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: searchbridge
+        env:
+          KUJO_BIN: ${{ github.workspace }}\kujo\target\release\kujo.exe
+        run: |
+          .\searchbridge.ps1 version
+          .\searchbridge.ps1 analytics --fixture --offline --deterministic
+          Compress-Archive -Path * -DestinationPath "$env:RUNNER_TEMP\searchbridge.zip"
+          if (-not (Test-Path "$env:RUNNER_TEMP\searchbridge.zip")) { exit 1 }

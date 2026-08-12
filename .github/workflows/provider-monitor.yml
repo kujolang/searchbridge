@@ -1,0 +1,33 @@
+name: provider-contract-monitor
+on:
+  schedule:
+    - cron: '43 8 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: kujolang/kujo
+          ref: 517c5369c6349038831951917478eb66100c1924
+          path: .runtime/kujo
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
+      - id: contract
+        continue-on-error: true
+        run: .runtime/kujo/target/release/kujo run scripts/provider_contract_gate.kujo
+      - name: Open review issue on drift
+        if: steps.contract.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing="$(gh issue list --state open --search 'Provider contract drift in:title' --json number --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            gh issue create --title 'Provider contract drift' --label bug --body 'The scheduled provider contract snapshot gate failed. Review official upstream contracts and update the immutable snapshot before release.'
+          fi
+          exit 1

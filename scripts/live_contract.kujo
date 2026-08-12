@@ -1,0 +1,16 @@
+from src.cli import prepare_options, dispatch
+from src.core import clean_error
+
+provider := args()[0]
+mut command := ""; mut tokens := ["--deterministic", "--page-size", "1", "--max-pages", "1", "--max-total-rows", "1"]
+if provider == "google-search-console" { command = "search-performance"; tokens = concat(tokens, ["--property", env("SEARCHBRIDGE_GSC_PROPERTY"), "--start-date", env("SEARCHBRIDGE_TEST_START_DATE"), "--end-date", env("SEARCHBRIDGE_TEST_END_DATE")]) }
+else if provider == "google-analytics-4" { command = "analytics"; tokens = concat(tokens, ["--property", env("SEARCHBRIDGE_GA4_PROPERTY")]) }
+else if provider == "pagespeed-insights" { command = "pagespeed"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL")]) }
+else if provider == "crux" { command = "crux"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL")]) }
+else if provider == "bing-webmaster" { command = "search-performance"; tokens = concat(tokens, ["--provider", "bing-webmaster", "--property", env("SEARCHBRIDGE_BING_PROPERTY")]) }
+else if provider == "ahrefs" { command = "backlinks"; tokens = concat(tokens, ["--provider", "ahrefs", "--target", env("SEARCHBRIDGE_AHREFS_TARGET")]) }
+else { eprint("unsupported live contract provider"); exit(2) }
+prepared := prepare_options(command, tokens); if !prepared["ok"] { eprint(clean_error(prepared["error"])); exit(1) }
+result := dispatch(command, prepared["value"]); if !result["ok"] { eprint(clean_error(result["error"])); exit(1) }
+value := result["value"]
+print(to_json({"schema": "searchbridge.live-contract-evidence/v1", "provider": provider, "capability": value["capability"], "result_schema": value["schema"], "row_count": len(value["rows"]), "pagination": value["pagination"], "telemetry": value["telemetry"]}))

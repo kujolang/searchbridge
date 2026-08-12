@@ -1,0 +1,48 @@
+name: live-contracts
+on:
+  schedule:
+    - cron: '17 7 * * 2'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-contracts:
+    runs-on: ubuntu-latest
+    environment: provider-contract-tests
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: kujolang/kujo
+          ref: 517c5369c6349038831951917478eb66100c1924
+          path: .runtime/kujo
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
+      - name: Run credential-gated low-row reads
+        env:
+          KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
+          SEARCHBRIDGE_GSC_TOKEN: ${{ secrets.SEARCHBRIDGE_GSC_TOKEN }}
+          SEARCHBRIDGE_GSC_PROPERTY: ${{ vars.SEARCHBRIDGE_GSC_PROPERTY }}
+          SEARCHBRIDGE_GA4_TOKEN: ${{ secrets.SEARCHBRIDGE_GA4_TOKEN }}
+          SEARCHBRIDGE_GA4_PROPERTY: ${{ vars.SEARCHBRIDGE_GA4_PROPERTY }}
+          SEARCHBRIDGE_PAGESPEED_KEY: ${{ secrets.SEARCHBRIDGE_PAGESPEED_KEY }}
+          SEARCHBRIDGE_CRUX_KEY: ${{ secrets.SEARCHBRIDGE_CRUX_KEY }}
+          SEARCHBRIDGE_BING_TOKEN: ${{ secrets.SEARCHBRIDGE_BING_TOKEN }}
+          SEARCHBRIDGE_BING_PROPERTY: ${{ vars.SEARCHBRIDGE_BING_PROPERTY }}
+          SEARCHBRIDGE_AHREFS_TOKEN: ${{ secrets.SEARCHBRIDGE_AHREFS_TOKEN }}
+          SEARCHBRIDGE_AHREFS_TARGET: ${{ vars.SEARCHBRIDGE_AHREFS_TARGET }}
+          SEARCHBRIDGE_TEST_URL: ${{ vars.SEARCHBRIDGE_TEST_URL }}
+          SEARCHBRIDGE_TEST_START_DATE: ${{ vars.SEARCHBRIDGE_TEST_START_DATE }}
+          SEARCHBRIDGE_TEST_END_DATE: ${{ vars.SEARCHBRIDGE_TEST_END_DATE }}
+        run: |
+          set -euo pipefail
+          : > live-contract-evidence.jsonl
+          for provider in google-search-console google-analytics-4 pagespeed-insights crux bing-webmaster ahrefs; do
+            "$KUJO_BIN" run scripts/live_contract.kujo -- "$provider" >> live-contract-evidence.jsonl
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: sanitized-live-contract-evidence
+          path: live-contract-evidence.jsonl
+          retention-days: 14

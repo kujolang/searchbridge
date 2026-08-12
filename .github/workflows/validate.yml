@@ -4,24 +4,24 @@ on:
   pull_request:
 permissions:
   contents: read
+env:
+  KUJO_COMMIT: 517c5369c6349038831951917478eb66100c1924
 jobs:
   kujo-native:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - name: Install verified Kujo v1.0.1 runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="v1.0.1"
-          archive="kujo-${version}-linux-x64.tar.gz"
-          base="https://github.com/kujolang/kujo/releases/download/${version}"
-          curl -sSfL "${base}/${archive}" -o "/tmp/${archive}"
-          curl -sSfL "${base}/${archive}.sha256" -o "/tmp/${archive}.sha256"
-          cd /tmp
-          sha256sum -c "${archive}.sha256"
-          tar -xzf "${archive}"
-          install -m 0755 kujo "${RUNNER_TEMP}/kujo"
-          echo "KUJO_BIN=${RUNNER_TEMP}/kujo" >> "$GITHUB_ENV"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: kujolang/kujo
+          ref: ${{ env.KUJO_COMMIT }}
+          path: .runtime/kujo
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: stable
+      - name: Build pinned Kujo runtime
+        run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
       - name: Validate
+        env:
+          KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
         run: bash scripts/validate.sh

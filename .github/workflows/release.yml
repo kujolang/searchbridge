@@ -1,0 +1,41 @@
+name: release
+on:
+  push:
+    tags: ['v0.2.*']
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  source-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: kujolang/kujo
+          ref: 517c5369c6349038831951917478eb66100c1924
+          path: .runtime/kujo
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
+      - name: Verify and generate Kujo-native metadata
+        env:
+          KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
+        run: |
+          bash scripts/validate.sh
+          mkdir -p dist
+          "$KUJO_BIN" run scripts/release_artifacts.kujo
+          git archive --format=tar.gz --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.tar.gz" "$GITHUB_REF_NAME"
+          git archive --format=zip --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.zip" "$GITHUB_REF_NAME"
+          cd dist
+          sha256sum * > SHA256SUMS
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: 'dist/*'
+      - uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false

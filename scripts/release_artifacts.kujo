@@ -1,0 +1,13 @@
+from src.core import VERSION, now_text
+
+files := []
+for directory in ["src", "schemas", "fixtures", "examples", "docs", "scripts"] {
+	for name in list_dir(directory) { if !path_is_dir(path_join(directory, name)) { files = push(files, path_join(directory, name)) } }
+}
+mut packages := []
+for path in sort(files) { packages = push(packages, {"SPDXID": "SPDXRef-" + substring(sha256(path), 0, 12), "name": path, "checksums": [{"algorithm": "SHA256", "checksumValue": sha256_file(path)}]}) }
+sbom := {"spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0", "SPDXID": "SPDXRef-DOCUMENT", "name": "searchbridge-" + VERSION, "documentNamespace": "https://github.com/kujolang/searchbridge/releases/" + VERSION, "creationInfo": {"created": now_text(false), "creators": ["Tool: SearchBridge Kujo release_artifacts.kujo"]}, "files": packages}
+write_file("dist/searchbridge-" + VERSION + ".spdx.json", to_json(sbom) + "\n", true)
+provenance := {"_type": "https://in-toto.io/Statement/v1", "subject": [{"name": "searchbridge-source", "digest": {"sha256": sha256_file("searchbridge.kujo")}}], "predicateType": "https://slsa.dev/provenance/v1", "predicate": {"buildDefinition": {"buildType": "https://github.com/kujolang/searchbridge/release/v1", "externalParameters": {"version": VERSION}}, "runDetails": {"builder": {"id": "https://github.com/kujolang/searchbridge/actions/workflows/release.yml"}}}}
+write_file("dist/searchbridge-" + VERSION + ".provenance.json", to_json(provenance) + "\n", true)
+print("Generated SPDX SBOM and SLSA provenance statement.")
