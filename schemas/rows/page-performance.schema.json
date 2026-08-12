@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"page.performance row","type":"object","required":["url","strategy","lab","metrics"],"properties":{"url":{"type":"string"},"strategy":{"enum":["mobile","desktop"]},"lab":{"type":"object"},"metrics":{"type":"object"},"field":{}},"additionalProperties":false}

@@ -1,0 +1,20 @@
+manifest := parse_json(read_file("fixtures/golden/0.2/manifest.json"))
+if manifest["compatible_series"] != "0.2.x" { eprint("golden compatibility series changed"); exit(1) }
+expected := {
+	"result-search-performance.json": "searchbridge.result/v1", "result-analytics.json": "searchbridge.result/v1",
+	"result-url-inspection.json": "searchbridge.result/v1", "result-page-performance.json": "searchbridge.result/v1",
+	"result-field-performance.json": "searchbridge.result/v1", "result-backlinks.json": "searchbridge.result/v1",
+	"result-keyword-data.json": "searchbridge.result/v1", "submission.json": "searchbridge.submission/v1",
+	"doctor.json": "searchbridge.doctor/v1", "capabilities.json": "searchbridge.capabilities/v1",
+	"providers.json": "searchbridge.providers/v1", "adapter-conformance.json": "searchbridge.adapter-conformance/v1",
+	"batch.json": "searchbridge.batch/v1"
+}
+for name in keys(expected) {
+	path := "fixtures/golden/0.2/" + name
+	if file_exists(path) == false { eprint("missing golden document: " + name); exit(1) }
+	document := parse_json(read_file(path))
+	if document["schema"] != expected[name] { eprint("breaking schema change in " + name); exit(1) }
+	if starts_with(name, "result-") && (has_key(document, "rows") == false || has_key(document, "capability") == false || has_key(document, "provider") == false) { eprint("result reader cannot accept " + name); exit(1) }
+	if name == "submission.json" && (has_key(document, "authorization") == false || has_key(document, "received") == false || has_key(document, "indexed") == false) { eprint("submission reader cannot accept golden document"); exit(1) }
+}
+print(to_string(len(keys(expected))) + " public 0.2.x golden documents remain readable.")

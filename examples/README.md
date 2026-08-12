@@ -12,3 +12,14 @@ done
 
 Live read-only calls require the provider environment variables shown by
 `./searchbridge providers`. Keep outputs in an operator-controlled directory.
+
+`ci_quality_gate.kujo` imports SearchBridge directly, consumes a typed result,
+and degrades to deterministic fixture evidence when live PageSpeed is not
+available:
+
+```bash
+"${KUJO_BIN:-../kujo/target/release/kujo}" run examples/ci_quality_gate.kujo
+```
+
+Canonical rows under `examples/rows/` correspond to the public capability
+schemas documented in `docs/row-contracts.md`.

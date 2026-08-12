@@ -1,0 +1,12 @@
+from src.core import providers
+
+snapshot := parse_json(read_file("fixtures/provider-contracts.json"))
+if snapshot["schema"] != "searchbridge.provider-contract-snapshot/v1" { eprint("invalid provider snapshot schema"); exit(1) }
+catalog := providers()
+for name in keys(catalog) {
+	if has_key(snapshot["providers"], name) == false { eprint("provider snapshot missing " + name); exit(1) }
+	contract := snapshot["providers"][name]
+	for field in ["endpoint", "method", "rows", "pagination", "source"] { if has_key(contract, field) == false || contract[field] == "" { eprint(name + " snapshot missing " + field); exit(1) } }
+	if contract["pagination"] != catalog[name]["request_contract"]["pagination"] { eprint(name + " pagination drift"); exit(1) }
+}
+print("Provider contract snapshots match the adapter catalog.")

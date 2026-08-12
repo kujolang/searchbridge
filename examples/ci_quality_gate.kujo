@@ -1,0 +1,16 @@
+# Compose SearchBridge as a typed Kujo CI gate without shelling out or parsing logs.
+from src.cli import prepare_options, dispatch
+
+capabilities := dispatch("capabilities", prepare_options("capabilities", ["--deterministic"])["value"])["value"]
+mut page_performance_available := false
+for item in capabilities["capabilities"] { if item["capability"] == "page.performance" && !item["degraded"] { page_performance_available = true } }
+
+# CI remains deterministic when optional live credentials are unavailable.
+mut tokens := ["--deterministic", "--max-total-rows", "1"]
+if !page_performance_available || env("SEARCHBRIDGE_TEST_URL") == "" { tokens = concat(tokens, ["--fixture", "--offline"]) }
+else { tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL")]) }
+result := dispatch("pagespeed", prepare_options("pagespeed", tokens)["value"])
+if !result["ok"] { eprint("quality gate could not collect page.performance evidence"); exit(2) }
+evidence := result["value"]
+if evidence["schema"] != "searchbridge.result/v1" || evidence["capability"] != "page.performance" || len(evidence["rows"]) != 1 { eprint("quality gate received incompatible evidence"); exit(1) }
+print("Kujo CI gate accepted typed " + evidence["mode"] + " evidence from " + evidence["provider"] + ".")

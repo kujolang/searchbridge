@@ -7,10 +7,16 @@ if [[ ! -x "$KUJO_RUNTIME" ]]; then printf 'SearchBridge: Kujo runtime not found
 cd "$ROOT"
 "$KUJO_RUNTIME" check searchbridge.kujo
 "$KUJO_RUNTIME" run tests/searchbridge_tests.kujo
-"$KUJO_RUNTIME" run scripts/validate_json.kujo
+while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$document"; done < <(find schemas fixtures/providers fixtures/golden examples/rows -type f -name '*.json' -print | sort)
+while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$document"; done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
+"$KUJO_RUNTIME" run scripts/validate_document.kujo -- kujo.toml
+"$KUJO_RUNTIME" run scripts/compatibility_gate.kujo
+"$KUJO_RUNTIME" run scripts/provider_contract_gate.kujo
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic >/dev/null
+KUJO_BIN="$KUJO_RUNTIME" ./searchbridge analytics --fixture --offline --deterministic --format jsonl >/dev/null
+KUJO_BIN="$KUJO_RUNTIME" ./searchbridge batch --fixture --offline --deterministic --commands pagespeed,crux >/dev/null
 if KUJO_BIN="$KUJO_RUNTIME" ./searchbridge not-a-command >/dev/null 2>&1; then
 	printf 'SearchBridge validation failed: unknown command succeeded.\n' >&2
 	exit 1
@@ -18,7 +24,7 @@ else
 	status=$?
 	if [[ "$status" -ne 2 ]]; then printf 'SearchBridge validation failed: unknown command exit was %s.\n' "$status" >&2; exit 1; fi
 fi
-if rg -n 'python3|\.py\b' src tests scripts/benchmark.kujo scripts/validate_json.kujo searchbridge.kujo kujo.toml; then
+if rg -n 'python3|\.py\b' src tests examples scripts/*.kujo searchbridge.kujo kujo.toml; then
 	printf 'SearchBridge validation failed: Python dependency reference remains.\n' >&2
 	exit 1
 fi

@@ -1,0 +1,7 @@
+path := args()[0]
+try {
+	if ends_with(path, ".json") { parse_json(read_file(path)) }
+	else if ends_with(path, ".yml") || ends_with(path, ".yaml") { parse_yaml(read_file(path)) }
+	else if ends_with(path, ".toml") { parse_toml(read_file(path)) }
+	else { eprint("unsupported validation document: " + path); exit(2) }
+} except parse_error { eprint("invalid structured document: " + path); exit(1) }

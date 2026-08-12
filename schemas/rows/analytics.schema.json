@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"analytics row","type":"object","description":"Keys are the requested GA4 dimensions and metrics; values remain provider strings or null.","additionalProperties":{"type":["string","null"]}}

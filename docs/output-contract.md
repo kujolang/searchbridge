@@ -32,6 +32,18 @@ Discovery commands use separate versioned envelopes:
 - `searchbridge.capabilities/v1`
 - `searchbridge.providers/v1`
 - `searchbridge.doctor/v1`
+- `searchbridge.adapter-conformance/v1`
+- `searchbridge.batch/v1`
+
+Result envelopes may include additive `pagination` and `telemetry` objects.
+Pagination names the provider strategy and caller ceilings. Telemetry contains
+only timing, retry, size, row, truncation, cache, and cost-class fields; it
+never contains request URLs, headers, credentials, or row values.
+
+`--format jsonl` emits one `searchbridge.row/v1` object per normalized row.
+Capability row schemas live in [`../schemas/rows/`](../schemas/rows/), and
+golden documents in `fixtures/golden/0.2/` are the executable compatibility
+baseline for every public 0.2.x envelope.
 
 Machine-readable JSON Schemas are in [`../schemas/`](../schemas/). Contract
 changes require a new schema identifier; compatible provider fields and row

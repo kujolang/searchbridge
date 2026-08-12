@@ -1,0 +1,25 @@
+from src.cli import prepare_options, dispatch
+
+root := "fixtures/golden/0.2"
+if !path_is_dir("fixtures/golden") { create_dir("fixtures/golden") }
+if !path_is_dir(root) { create_dir(root) }
+
+func emit(name, command, tokens) {
+	options := prepare_options(command, concat(tokens, ["--fixture", "--offline", "--deterministic"]))
+	if !options["ok"] { eprint(options["error"]); exit(1) }
+	result := dispatch(command, options["value"]); if !result["ok"] { eprint(result["error"]); exit(1) }
+	write_file(root + "/" + name + ".json", to_json(result["value"]) + "\n", true)
+}
+
+emit("result-search-performance", "search-performance", [])
+emit("result-analytics", "analytics", [])
+emit("result-url-inspection", "inspect-url", [])
+emit("result-page-performance", "pagespeed", [])
+emit("result-field-performance", "crux", [])
+emit("result-backlinks", "backlinks", [])
+emit("result-keyword-data", "keyword-data", [])
+emit("submission", "submit", ["--url", "https://example.com/new", "--capability", "index.submission", "--act", "--yes"])
+for command in ["doctor", "capabilities", "providers", "adapter-conformance"] { emit(command, command, []) }
+emit("batch", "batch", ["--commands", "pagespeed,crux"])
+write_file(root + "/manifest.json", to_json({"schema": "searchbridge.golden-manifest/v1", "compatible_series": "0.2.x", "public_envelopes": ["result", "submission", "doctor", "capabilities", "providers", "adapter-conformance", "batch"]}) + "\n", true)
+print("Generated immutable 0.2.x golden documents.")

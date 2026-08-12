@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"field.performance row","type":"object","required":["url","form_factor","metrics"],"properties":{"url":{"type":"string"},"form_factor":{"enum":["PHONE","DESKTOP","TABLET"]},"metrics":{"type":"object"},"collection_period":{}},"additionalProperties":false}
