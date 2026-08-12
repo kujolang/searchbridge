@@ -19,7 +19,7 @@ small operating-system integration boundaries.
 ## Quick start
 
 SearchBridge 0.3.0 requires the prepared Kujo v1.0.2 runtime at commit
-`4463678d1badeb4ccff3f6cca8d052b9360f40c0`. CI pins that source commit until the release is explicitly
+`05fe4c382296b716a9a5e31d137d1880b4a6b807`. CI pins that source commit until the release is explicitly
 authorized and published; after publication it will use the checksum-verified
 runtime archive. Then:
 
