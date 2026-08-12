@@ -1,18 +1,4 @@
-# SearchBridge's Kujo entrypoint. Provider HTTP/OAuth wire work is isolated in
-# a bounded standard-library bridge; normalization and capability routing stay
-# behind this stable CLI.
-func main() {
-	command := ["python3", "bridge/searchbridge.py"]
-	argv := args()
-	i := 0
-	loop {
-		if i >= len(argv) { break }
-		command = push(command, to_string(argv[i]))
-		i := i + 1
-	}
-	result := spawn_process(command, {"timeout_ms": 300000})
-	if result.stdout != "" { print(trim_end(result.stdout)) }
-	if result.stderr != "" { print(trim_end(result.stderr)) }
-	exit(result.exitcode)
-}
-main()
+# Stable root entrypoint; implementation modules live under src/.
+from src.cli import run_cli
+
+exit(run_cli(args()))

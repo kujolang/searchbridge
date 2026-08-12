@@ -1,0 +1,151 @@
+from src.core import VERSION, failure, clean_error, utf8_size
+from src.commands import static_command, command_search_performance, command_analytics, command_inspect, command_pagespeed, command_crux, command_backlinks, command_keywords, command_submit
+
+func bool_flags() { return ["fixture", "offline", "deterministic", "act", "yes"] }
+func value_flags() { return ["out", "timeout", "retries", "limit", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "key-location", "endpoint", "capability"] }
+
+func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
+func commands() { return ["doctor", "capabilities", "providers", "version", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
+
+func default_options() {
+	return {
+		"fixture": false, "offline": false, "deterministic": false, "act": false, "yes": false,
+		"out": "", "timeout": 30.0, "retries": 2, "limit": 100,
+		"max_output_bytes": 1048576, "max_output_tokens": 250000,
+		"provider": "", "property": "", "start_date": "", "end_date": "",
+		"dimensions": "", "metrics": "", "url": "", "urls": [],
+		"strategy": "mobile", "form_factor": "PHONE", "target": "", "keyword": "",
+		"country": "US", "key_location": "", "endpoint": "", "capability": "", "transport": null
+	}
+}
+
+func option_key(name) { return replace(name, "-", "_") }
+
+export func parse_options(tokens) {
+	mut options := default_options()
+	mut seen := []
+	mut i := 0
+	while i < len(tokens) {
+		token := tokens[i]
+		if !starts_with(token, "--") { return failure("unexpected positional argument: " + token) }
+		mut raw := substring(token, 2, len(token)); mut inline_value := ""; mut has_inline := false
+		equals := index_of(raw, "=")
+		if equals >= 0 { inline_value = substring(raw, equals + 1, len(raw)); raw = substring(raw, 0, equals); has_inline = true }
+		if includes(bool_flags(), raw) {
+			if has_inline { return failure("option --" + raw + " does not take a value") }
+			options[option_key(raw)] = true
+		} else if includes(value_flags(), raw) {
+			mut value := inline_value
+			if !has_inline {
+				if i + 1 >= len(tokens) || starts_with(tokens[i + 1], "--") { return failure("missing value for --" + raw) }
+				i = i + 1; value = tokens[i]
+			}
+			if value == "" { return failure("missing value for --" + raw) }
+			if raw == "url" { options["urls"] = push(options["urls"], value); options["url"] = value }
+			else {
+				if includes(seen, raw) { return failure("duplicate option --" + raw) }
+				options[option_key(raw)] = value; seen = push(seen, raw)
+			}
+		} else { return failure("unknown option --" + raw) }
+		i = i + 1
+	}
+	try {
+		options["timeout"] = to_float(options["timeout"])
+		options["retries"] = to_int(options["retries"])
+		options["limit"] = to_int(options["limit"])
+		options["max_output_bytes"] = to_int(options["max_output_bytes"])
+		options["max_output_tokens"] = to_int(options["max_output_tokens"])
+	} except number_error { return failure("numeric option contains an invalid value") }
+	if options["timeout"] <= 0 || options["timeout"] > 120 { return failure("--timeout must be between 0 and 120 seconds") }
+	if options["retries"] < 0 || options["retries"] > 5 { return failure("--retries must be between 0 and 5") }
+	if options["limit"] < 1 || options["limit"] > 1000 { return failure("--limit must be between 1 and 1000") }
+	if options["max_output_bytes"] < 256 { return failure("--max-output-bytes must be at least 256") }
+	if options["max_output_tokens"] < 64 { return failure("--max-output-tokens must be at least 64") }
+	return {"ok": true, "value": options}
+}
+
+func apply_command_defaults(command, options) {
+	if options["dimensions"] == "" {
+		if command == "analytics" { options["dimensions"] = "date,pagePath" }
+		else { options["dimensions"] = "date,query,page" }
+	}
+	if options["metrics"] == "" { options["metrics"] = "sessions,screenPageViews" }
+	if options["provider"] == "" {
+		if command == "backlinks" || command == "keyword-data" { options["provider"] = "ahrefs" }
+		else if command == "submit" { options["provider"] = "indexnow" }
+		else { options["provider"] = "google-search-console" }
+	}
+	return options
+}
+
+func validate_command_options(command, options) {
+	if !includes(["doctor", "capabilities", "providers", "version"], command) && options["offline"] && !options["fixture"] { return failure("offline mode requires --fixture for provider commands") }
+	if command == "search-performance" && !includes(["google-search-console", "bing-webmaster"], options["provider"]) { return failure("--provider must be google-search-console or bing-webmaster") }
+	if command == "backlinks" && !includes(["ahrefs", "bing-webmaster"], options["provider"]) { return failure("--provider must be ahrefs or bing-webmaster") }
+	if command == "submit" && !includes(["indexnow", "bing-webmaster"], options["provider"]) { return failure("--provider must be indexnow or bing-webmaster") }
+	if !includes(["mobile", "desktop"], options["strategy"]) { return failure("--strategy must be mobile or desktop") }
+	if !includes(["PHONE", "DESKTOP", "TABLET"], options["form_factor"]) { return failure("--form-factor must be PHONE, DESKTOP, or TABLET") }
+	return {"ok": true, "value": options}
+}
+
+export func prepare_options(command, tokens) {
+	parsed := parse_options(tokens)
+	if !parsed["ok"] { return parsed }
+	options := apply_command_defaults(command, parsed["value"])
+	return validate_command_options(command, options)
+}
+
+export func dispatch(command, options) {
+	if includes(["doctor", "capabilities", "providers", "version"], command) { return static_command(command, options["deterministic"]) }
+	if command == "search-performance" { return command_search_performance(options) }
+	if command == "analytics" { return command_analytics(options) }
+	if command == "inspect-url" { return command_inspect(options) }
+	if command == "pagespeed" { return command_pagespeed(options) }
+	if command == "crux" { return command_crux(options) }
+	if command == "backlinks" { return command_backlinks(options) }
+	if command == "keyword-data" { return command_keywords(options) }
+	if command == "submit" { return command_submit(options) }
+	return failure("unknown command: " + command)
+}
+
+export func render_output(value, options) {
+	text := to_json(value) + "\n"
+	size := utf8_size(text)
+	if size > options["max_output_bytes"] || size > options["max_output_tokens"] * 4 { return failure("output budget exceeded (" + to_string(size) + " bytes)") }
+	if options["out"] != "" {
+		try { write_file(options["out"], text, true) }
+		except write_error { return failure("could not write output: " + to_string(write_error)) }
+	}
+	return {"ok": true, "value": text}
+}
+
+func print_help() {
+	print("SearchBridge " + VERSION + " — Kujo-native provider evidence gateway")
+	print("")
+	print("Usage: ./searchbridge <command> [options]")
+	print("")
+	print("Commands: doctor, capabilities, providers, version, search-performance,")
+	print("          analytics, inspect-url, pagespeed, crux, backlinks, keyword-data, submit")
+	print("")
+	print("Common options: --fixture --offline --deterministic --out PATH")
+	print("                --timeout SEC --retries N --limit N")
+	print("                --max-output-bytes N --max-output-tokens N")
+	print("Run README examples for provider-specific options.")
+}
+
+export func run_cli(argv) {
+	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" || argv[0] == "-h" { print_help(); return 0 }
+	mut command := argv[0]
+	if command == "--version" || command == "-V" { command = "version" }
+	if !includes(commands(), command) { eprint("SearchBridge: unknown command: " + command); return 2 }
+	if len(argv) > 1 && (argv[1] == "--help" || argv[1] == "-h") { print_help(); return 0 }
+	validated := prepare_options(command, slice(argv, 1, len(argv)))
+	if !validated["ok"] { eprint("SearchBridge: " + validated["error"]); return 2 }
+	options := validated["value"]
+	result := dispatch(command, options)
+	if !result["ok"] { eprint("SearchBridge: " + clean_error(result["error"])); return 1 }
+	rendered := render_output(result["value"], options)
+	if !rendered["ok"] { eprint("SearchBridge: " + rendered["error"]); return 1 }
+	print(trim_end(rendered["value"]))
+	return 0
+}

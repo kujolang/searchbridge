@@ -1,4 +1,121 @@
-result := spawn_process(["python3", "tests/test_searchbridge.py"], {"timeout_ms": 120000})
-if result.stdout != "" { print(trim_end(result.stdout)) }
-if result.stderr != "" { print(trim_end(result.stderr)) }
-exit(result.exitcode)
+from src.cli import prepare_options, dispatch, render_output
+from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc
+from src.transport import should_retry_status, retry_contract_probe
+
+mut passed := 0
+mut failed := 0
+
+func check(condition, label) {
+	if condition { passed = passed + 1; print("ok - " + label); return }
+	failed = failed + 1; eprint("not ok - " + label)
+}
+
+func options_for(command, tokens) {
+	prepared := prepare_options(command, tokens)
+	check(prepared["ok"], command + " options parse")
+	return prepared["value"]
+}
+
+func runtime_schema(path) {
+	raw := parse_json(read_file(path)); mut schema := {}
+	for key in keys(raw) { if key != "$schema" && key != "$id" { schema[key] := raw[key] } }
+	return schema
+}
+
+# Capability-level degradation is explicit and fixture work remains ready.
+doctor_options := options_for("doctor", ["--deterministic"])
+doctor := dispatch("doctor", doctor_options)
+check(doctor["ok"] && doctor["value"]["ok"], "doctor succeeds without credentials")
+check(doctor["value"]["runtime"] == "kujo-native", "doctor reports native Kujo runtime")
+check(json_schema_validate(doctor["value"], runtime_schema("schemas/doctor.schema.json"))["valid"], "doctor satisfies its public schema")
+caps := dispatch("capabilities", doctor_options)["value"]
+check(json_schema_validate(caps, runtime_schema("schemas/capabilities.schema.json"))["valid"], "capabilities satisfy their public schema")
+provider_catalog := dispatch("providers", doctor_options)["value"]
+check(json_schema_validate(provider_catalog, runtime_schema("schemas/providers.schema.json"))["valid"], "providers satisfy their public schema")
+mut degraded := false
+for capability in caps["capabilities"] {
+	if capability["degraded"] { degraded = true }
+	mut write_seen := false
+	for provider in capability["providers"] { if provider["write"] { write_seen = true } }
+	check(write_seen == (capability["capability"] == "index.submission"), "write capability remains isolated: " + capability["capability"])
+}
+check(degraded, "missing credentials degrade individual capabilities")
+
+# Every declared read adapter normalizes through a deterministic fixture.
+fixture_cases := [
+	["search-performance", []],
+	["search-performance", ["--provider", "bing-webmaster"]],
+	["analytics", []], ["inspect-url", []], ["pagespeed", []], ["crux", []],
+	["backlinks", []], ["backlinks", ["--provider", "bing-webmaster"]], ["keyword-data", []]
+]
+mut fixture_paths := []
+for name in list_dir("fixtures/providers") { fixture_paths = push(fixture_paths, "fixtures/providers/" + name) }
+mut before_hashes := {}
+for path in fixture_paths { if ends_with(path, ".json") { before_hashes[path] := sha256_file(path) } }
+for item in fixture_cases {
+	command := item[0]; tokens := concat(item[1], ["--fixture", "--offline", "--deterministic"])
+	result := dispatch(command, options_for(command, tokens))
+	check(result["ok"], command + " fixture succeeds")
+	if result["ok"] {
+		check(json_schema_validate(result["value"], runtime_schema("schemas/result.schema.json"))["valid"], command + " satisfies result schema")
+		check(result["value"]["schema"] == "searchbridge.result/v1", command + " uses result schema")
+		check(result["value"]["mode"] == "fixture", command + " identifies fixture mode")
+		check(len(result["value"]["rows"]) > 0, command + " emits normalized rows")
+		check(result["value"]["retrieved_at"] == "1970-01-01T00:00:00Z", command + " is deterministic")
+	}
+}
+for path in keys(before_hashes) { check(before_hashes[path] == sha256_file(path), "fixture remains immutable: " + path) }
+
+# Output files and budgets are bounded.
+output_path := "/tmp/searchbridge-output-test-" + to_string(current_timestamp()) + ".json"
+analytics_options := options_for("analytics", ["--fixture", "--deterministic", "--out", output_path])
+analytics := dispatch("analytics", analytics_options)
+written := render_output(analytics["value"], analytics_options)
+check(written["ok"] && file_exists(output_path), "output artifact is written")
+check(parse_json(read_file(output_path))["capability"] == "analytics", "output artifact contains normalized result")
+delete_file(output_path)
+small_options := options_for("analytics", ["--fixture", "--max-output-bytes", "256"])
+check(!render_output(analytics["value"], small_options)["ok"], "byte output budget is enforced")
+check(!prepare_options("backlinks", ["--fixture", "--limit", "1001"])["ok"], "row limit is bounded")
+bounded_gsc := normalize_gsc({"rows": [{"keys": ["a"]}, {"keys": ["b"]}]}, ["query"], "sc-domain:example.com", "fixture", 1, true)
+check(len(bounded_gsc["rows"]) == 1, "provider rows are bounded after normalization")
+
+# Submission is fail-closed and URL parsing strips fragments without leaking credentials.
+base_submit := ["--fixture", "--url", "https://example.com/new"]
+check(!dispatch("submit", options_for("submit", base_submit))["ok"], "submission rejects missing authorization")
+check(!dispatch("submit", options_for("submit", concat(base_submit, ["--act", "--yes"])))["ok"], "submission rejects missing capability")
+authorized := options_for("submit", concat(base_submit, ["--capability", "index.submission", "--act", "--yes", "--deterministic"]))
+receipt := dispatch("submit", authorized)
+check(receipt["ok"] && receipt["value"]["received"] && !receipt["value"]["indexed"], "submission receipt never claims indexing")
+check(json_schema_validate(receipt["value"], runtime_schema("schemas/submission.schema.json"))["valid"], "submission satisfies its public schema")
+check(!dispatch("submit", options_for("submit", ["--fixture", "--url", "https://example.com/a", "--url", "https://other.example/b", "--capability", "index.submission", "--act", "--yes"]))["ok"], "mixed-host submissions are rejected")
+check(!dispatch("submit", options_for("submit", ["--fixture", "--url", "https://example.com/a", "--key-location", "https://other.example/key.txt", "--capability", "index.submission", "--act", "--yes"]))["ok"], "cross-host IndexNow key locations are rejected")
+check(!dispatch("submit", options_for("submit", ["--fixture", "--url", "https://example.com/a", "--endpoint", "https://attacker.example/collect", "--capability", "index.submission", "--act", "--yes"]))["ok"], "custom submission endpoints are rejected in every mode")
+check(!dispatch("submit", options_for("submit", ["--fixture", "--provider", "bing-webmaster", "--url", "https://example.com/a", "--property", "https://other.example/", "--capability", "index.submission", "--act", "--yes"]))["ok"], "cross-host Bing properties are rejected")
+for bad_url in ["", "ftp://example.com", "https://u:p@example.com", "http://example.com:99999", "https://example.com/a\nb"] {
+	check(!normalize_submission_url(bad_url)["ok"], "unsafe URL is rejected")
+}
+normalized := normalize_submission_url("https://EXAMPLE.com/path?q=1#secret")
+check(normalized["ok"] && normalized["value"]["host"] == "example.com" && contains(normalized["value"]["url"], "secret") == 0, "submission URL is normalized and fragment-free")
+check(utf8_size("Kujo é") == 7, "UTF-8 budgets count bytes exactly")
+check(!dispatch("pagespeed", options_for("pagespeed", ["--fixture", "--url", "https://user:pass@example.com/"]))["ok"], "evidence URLs reject embedded credentials")
+
+# Request retries are bounded and response/error bodies are not exposed.
+probe := retry_contract_probe()
+check(probe["retried"]["ok"], "JSON headers are set and 429 is retried once then succeeds")
+check(should_retry_status(503) && !should_retry_status(400), "only transient status codes retry")
+check(!probe["failed"]["ok"], "transport retries are bounded")
+check(contains(probe["failed"]["error"], "super-secret") == 0, "transport errors are redacted")
+check(contains(clean_error("Authorization=secret-value"), "secret-value") == 0, "authorization values are redacted")
+
+# Parser rejects ambiguous or invalid input.
+check(!prepare_options("analytics", ["--wat"])["ok"], "unknown flags are rejected")
+check(!prepare_options("analytics", ["--limit", "1", "--limit", "2"])["ok"], "duplicate scalar flags are rejected")
+check(!prepare_options("analytics", ["--offline"])["ok"], "offline mode requires fixtures")
+check(!prepare_options("pagespeed", ["--strategy", "tablet"])["ok"], "invalid strategy is rejected")
+check(!dispatch("keyword-data", options_for("keyword-data", ["--fixture", "--country", "USA"]))["ok"], "invalid country codes are rejected")
+bad_dates := dispatch("search-performance", options_for("search-performance", ["--property", "sc-domain:example.com", "--start-date", "2026-13-01", "--end-date", "2026-13-02"]))
+check(!bad_dates["ok"] && contains(bad_dates["error"], "dates") == 1, "invalid GSC date ranges fail before authentication")
+
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

@@ -2,6 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KUJO_RUNTIME="${KUJO_BIN:-$ROOT/../kujo/target/release/kujo}"
+if [[ ! -x "$KUJO_RUNTIME" ]] && command -v kujo >/dev/null 2>&1; then KUJO_RUNTIME="$(command -v kujo)"; fi
 if [[ ! -x "$KUJO_RUNTIME" ]]; then printf 'SearchBridge: Kujo runtime not found. Set KUJO_BIN.\n' >&2; exit 2; fi
 cd "$ROOT"
 exec "$KUJO_RUNTIME" run searchbridge.kujo -- "$@"

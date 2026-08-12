@@ -5,12 +5,23 @@ on:
 permissions:
   contents: read
 jobs:
-  fixtures:
+  kujo-native:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python3 tests/test_searchbridge.py
-      - run: python3 -m py_compile bridge/searchbridge.py
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install verified Kujo v1.0.1 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="v1.0.1"
+          archive="kujo-${version}-linux-x64.tar.gz"
+          base="https://github.com/kujolang/kujo/releases/download/${version}"
+          curl -sSfL "${base}/${archive}" -o "/tmp/${archive}"
+          curl -sSfL "${base}/${archive}.sha256" -o "/tmp/${archive}.sha256"
+          cd /tmp
+          sha256sum -c "${archive}.sha256"
+          tar -xzf "${archive}"
+          install -m 0755 kujo "${RUNNER_TEMP}/kujo"
+          echo "KUJO_BIN=${RUNNER_TEMP}/kujo" >> "$GITHUB_ENV"
+      - name: Validate
+        run: bash scripts/validate.sh

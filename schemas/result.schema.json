@@ -5,8 +5,11 @@
   "required": ["schema", "capability", "provider", "mode", "retrieved_at", "rows"],
   "properties": {
     "schema": {"const": "searchbridge.result/v1"},
+    "capability": {"enum": ["search.performance", "analytics", "url.inspection", "page.performance", "field.performance", "backlinks", "keyword.data"]},
+    "provider": {"type": "string", "minLength": 1},
     "mode": {"enum": ["fixture", "live"]},
-    "rows": {"type": "array"}
+    "retrieved_at": {"type": "string", "minLength": 20},
+    "rows": {"type": "array", "maxItems": 1000}
   },
   "additionalProperties": true
 }

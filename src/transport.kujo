@@ -1,0 +1,66 @@
+from src.core import MAX_PROVIDER_BYTES, clean_error, failure, success, dict_get, utf8_size
+
+export func should_retry_status(status) {
+	return status == 429 || status == 500 || status == 502 || status == 503 || status == 504
+}
+
+func default_transport(url, options) { return http_request(url, options) }
+
+export func request_json(url, method, body, headers, policy, transport) {
+	if dict_get(policy, "offline", false) { return failure("offline mode blocks live provider requests") }
+	mut merged := {"User-Agent": dict_get(policy, "user_agent", "Kujo-SearchBridge"), "Accept": "application/json"}
+	for key in keys(headers) { merged[key] := headers[key] }
+	if type(body) != "null" { merged["Content-Type"] := "application/json" }
+	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30)}
+	if type(body) != "null" { request_options["body"] := to_json(body) }
+	mut call_transport := transport
+	if type(call_transport) == "null" { call_transport = default_transport }
+	mut attempt := 0
+	max_attempts := dict_get(policy, "retries", 2) + 1
+	mut last_error := "provider request failed"
+	while attempt < max_attempts {
+		request_options["_attempt"] = attempt
+		request_result := call_transport(url, request_options)
+		match request_result {
+			case Ok(response): {
+				status := dict_get(response, "_status", dict_get(response, "status", 0))
+				raw := dict_get(response, "_body", dict_get(response, "body", ""))
+				if utf8_size(raw) > MAX_PROVIDER_BYTES { return failure("provider response exceeded 8 MiB") }
+				if status >= 200 && status < 300 {
+					mut payload := raw; if payload == "" { payload = "{}" }
+					try { return success({"status": status, "body": parse_json(payload)}) }
+					except parse_error { return failure("provider returned invalid JSON") }
+				}
+				last_error = "provider returned HTTP " + to_string(status)
+				if !should_retry_status(status) { return failure(last_error) }
+			}
+			case Err(transport_error): { last_error = clean_error(transport_error) }
+			case other: { last_error = "unexpected transport result: " + type(other) }
+		}
+		attempt = attempt + 1
+		if attempt < max_attempts {
+			mut delay_ms := 250
+			mut delay_step := 1
+			while delay_step < attempt { delay_ms = delay_ms * 2; delay_step = delay_step + 1 }
+			if delay_ms > 2000 { delay_ms = 2000 }
+			sleep(delay_ms)
+		}
+	}
+	return failure(last_error)
+}
+
+# Deterministic module-local transport probe used by the native test suite.
+export func retry_contract_probe() {
+	retry_transport := func(_url, _options) {
+		if dict_get(dict_get(_options, "headers", {}), "Content-Type", "") != "application/json" { return Ok({"_status": 400, "_body": "{}"}) }
+		if _options["_attempt"] == 0 { return Ok({"_status": 429, "_body": "{}"}) }
+		return Ok({"_status": 202, "_body": "{}"})
+	}
+	retried := request_json("https://example.invalid", "POST", {}, {}, {"offline": false, "timeout": 1, "retries": 2, "user_agent": "test"}, retry_transport)
+	capped_transport := func(_url, _options) {
+		if _options["_attempt"] < 2 { return Err("token=super-secret timeout") }
+		return Ok({"_status": 200, "_body": "{}"})
+	}
+	failed := request_json("https://example.invalid", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 1, "user_agent": "test"}, capped_transport)
+	return {"retried": retried, "failed": failed}
+}

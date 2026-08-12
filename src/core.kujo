@@ -1,0 +1,251 @@
+# SearchBridge shared contracts, provider catalog, normalization, and safety helpers.
+
+export VERSION := "0.2.0"
+export RESULT_SCHEMA := "searchbridge.result/v1"
+export SUBMISSION_SCHEMA := "searchbridge.submission/v1"
+export DETERMINISTIC_TIME := "1970-01-01T00:00:00Z"
+export MAX_PROVIDER_BYTES := 8388608
+
+export func dict_get(record, key, fallback) {
+	if type(record) == "dict" && has_key(record, key) { return record[key] }
+	return fallback
+}
+
+export func providers() {
+	return {
+		"google-search-console": {"capabilities": ["search.performance", "url.inspection"], "env": ["SEARCHBRIDGE_GSC_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": []},
+		"google-analytics-4": {"capabilities": ["analytics"], "env": ["SEARCHBRIDGE_GA4_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": []},
+		"pagespeed-insights": {"capabilities": ["page.performance"], "env": [], "env_any": [], "optional_env": ["SEARCHBRIDGE_PAGESPEED_KEY"], "write_capabilities": []},
+		"crux": {"capabilities": ["field.performance"], "env": ["SEARCHBRIDGE_CRUX_KEY"], "env_any": [], "optional_env": [], "write_capabilities": []},
+		"indexnow": {"capabilities": ["index.submission"], "env": ["SEARCHBRIDGE_INDEXNOW_KEY"], "env_any": [], "optional_env": [], "write_capabilities": ["index.submission"]},
+		"bing-webmaster": {"capabilities": ["search.performance", "backlinks", "index.submission"], "env": [], "env_any": ["SEARCHBRIDGE_BING_KEY", "SEARCHBRIDGE_BING_TOKEN"], "optional_env": [], "write_capabilities": ["index.submission"]},
+		"ahrefs": {"capabilities": ["backlinks", "keyword.data"], "env": ["SEARCHBRIDGE_AHREFS_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_warning": "Most API v3 requests consume Ahrefs API units."}
+	}
+}
+
+export func includes(values, needle) {
+	for value in values { if value == needle { return true } }
+	return false
+}
+
+export func now_text(deterministic) {
+	if deterministic { return DETERMINISTIC_TIME }
+	return now_utc()
+}
+
+export func clean_error(value) {
+	mut text := to_string(value)
+	text = regex_replace(text, "(?i)(authorization|token|api[_-]?key|key)=([^&\\s]+)", "$1=[REDACTED]")
+	text = regex_replace(text, "(?i)(bearer\\s+)[A-Za-z0-9._~+/-]+", "$1[REDACTED]")
+	if len(text) > 240 { text = substring(text, 0, 240) }
+	return text
+}
+
+export func utf8_size(text) {
+	encoded := encode_base64(text)
+	mut padding := 0
+	if ends_with(encoded, "==") { padding = 2 }
+	else if ends_with(encoded, "=") { padding = 1 }
+	return to_int((len(encoded) / 4) * 3) - padding
+}
+
+export func failure(message) { return {"ok": false, "error": clean_error(message)} }
+export func success(value) { return {"ok": true, "value": value} }
+
+export func fixture(name) {
+	try { return success(parse_json(read_file("fixtures/providers/" + name + ".json"))) }
+	except read_error { return failure("could not load fixture " + name + ": " + to_string(read_error)) }
+}
+
+export func envelope(capability, provider, mode, rows, extra, deterministic) {
+	mut result := {
+		"schema": RESULT_SCHEMA,
+		"capability": capability,
+		"provider": provider,
+		"mode": mode,
+		"retrieved_at": now_text(deterministic),
+		"rows": rows
+	}
+	for key in keys(extra) { result[key] := extra[key] }
+	return result
+}
+
+export func capability_report(deterministic) {
+	catalog := providers()
+	capability_names := []
+	for name in keys(catalog) {
+		for capability in catalog[name]["capabilities"] {
+			if !includes(capability_names, capability) { capability_names = push(capability_names, capability) }
+		}
+	}
+	mut rows := []
+	for capability in sort(capability_names) {
+		mut provider_rows := []
+		mut any_available := false
+		for name in sort(keys(catalog)) {
+			config := catalog[name]
+			if !includes(config["capabilities"], capability) { continue }
+			mut missing := []
+			for variable in config["env"] { if env(variable) == "" { missing = push(missing, variable) } }
+			alternatives := dict_get(config, "env_any", [])
+			mut any_alternative := len(alternatives) == 0
+			for variable in alternatives { if env(variable) != "" { any_alternative = true } }
+			if !any_alternative { for variable in alternatives { missing = push(missing, variable) } }
+			available := len(missing) == 0
+			if available { any_available = true }
+			provider_rows = push(provider_rows, {
+				"provider": name,
+				"live_available": available,
+				"fixture_available": true,
+				"write": includes(config["write_capabilities"], capability),
+				"missing_environment": missing
+			})
+		}
+		rows = push(rows, {"capability": capability, "available": any_available, "degraded": !any_available, "providers": provider_rows})
+	}
+	return {"schema": "searchbridge.capabilities/v1", "generated_at": now_text(deterministic), "capabilities": rows}
+}
+
+export func csv_values(text) {
+	mut output := []
+	for raw in split(text, ",") {
+		value := trim(raw)
+		if value != "" && !includes(output, value) { output = push(output, value) }
+	}
+	return output
+}
+
+export func take(values, limit) {
+	if len(values) <= limit { return values }
+	return slice(values, 0, limit)
+}
+
+export func query_encode(value) {
+	# Kujo's HTTP client handles UTF-8 URLs. Encode ASCII query delimiters here
+	# so user input cannot change parameter boundaries.
+	mut text := to_string(value)
+	text = replace(text, "%", "%25")
+	text = replace(text, " ", "%20")
+	text = replace(text, "+", "%2B")
+	text = replace(text, "&", "%26")
+	text = replace(text, "=", "%3D")
+	text = replace(text, "?", "%3F")
+	text = replace(text, "#", "%23")
+	text = replace(text, "/", "%2F")
+	text = replace(text, ":", "%3A")
+	return text
+}
+
+func parse_port(authority) {
+	if starts_with(authority, "[") {
+		closing := index_of(authority, "]")
+		if closing < 0 { return failure("invalid submission URL") }
+		if closing + 1 == len(authority) { return success("") }
+		if substring(authority, closing + 1, closing + 2) != ":" { return failure("invalid submission URL") }
+		return success(substring(authority, closing + 2, len(authority)))
+	}
+	colon := index_of(authority, ":")
+	if colon < 0 { return success("") }
+	if index_of(substring(authority, colon + 1, len(authority)), ":") >= 0 { return failure("invalid submission URL") }
+	return success(substring(authority, colon + 1, len(authority)))
+}
+
+func valid_port(text) {
+	if text == "" { return true }
+	if !regex_match(text, "^[0-9]{1,5}$") { return false }
+	port := to_int(text)
+	return port > 0 && port <= 65535
+}
+
+export func normalize_submission_url(url) {
+	if type(url) != "string" || len(url) > 8192 || regex_match(url, "[\\r\\n\\t ]") { return failure("invalid submission URL") }
+	mut scheme := ""
+	mut start := 0
+	if starts_with(url, "https://") { scheme = "https"; start = 8 }
+	else if starts_with(url, "http://") { scheme = "http"; start = 7 }
+	else { return failure("invalid submission URL") }
+	mut boundary := len(url)
+	for marker in ["/", "?", "#"] {
+		at := index_of(substring(url, start, len(url)), marker)
+		if at >= 0 && start + at < boundary { boundary = start + at }
+	}
+	authority := substring(url, start, boundary)
+	if authority == "" || contains(authority, "@") || contains(authority, "\\") { return failure("invalid submission URL") }
+	port_result := parse_port(authority)
+	if !port_result["ok"] || !valid_port(port_result["value"]) { return failure("invalid submission URL") }
+	mut host := authority
+	if starts_with(authority, "[") {
+		closing := index_of(authority, "]")
+		host = substring(authority, 0, closing + 1)
+	} else {
+		colon := index_of(authority, ":")
+		if colon >= 0 { host = substring(authority, 0, colon) }
+	}
+	if host == "" || !regex_match(host, "^(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]+)$") { return failure("invalid submission URL") }
+	if !starts_with(host, "[") {
+		if len(host) > 253 { return failure("invalid submission URL") }
+		for label in split(host, ".") {
+			if len(label) == 0 || len(label) > 63 || !regex_match(label, "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$") { return failure("invalid submission URL") }
+		}
+	}
+	mut remainder := substring(url, boundary, len(url))
+	fragment := index_of(remainder, "#")
+	if fragment >= 0 { remainder = substring(remainder, 0, fragment) }
+	if remainder == "" { remainder = "/" }
+	if starts_with(remainder, "?") { remainder = "/" + remainder }
+	return success({"url": scheme + "://" + authority + remainder, "host": to_lower(host)})
+}
+
+export func validate_submission_urls(urls) {
+	if len(urls) == 0 { return failure("submission requires at least one --url") }
+	if len(urls) > 1000 { return failure("SearchBridge caps one submission at 1,000 URLs") }
+	mut normalized := []
+	mut host := ""
+	for url in urls {
+		parsed := normalize_submission_url(url)
+		if !parsed["ok"] { return parsed }
+		if host == "" { host = parsed["value"]["host"] }
+		else if host != parsed["value"]["host"] { return failure("submission URLs must share one host") }
+		normalized = push(normalized, parsed["value"]["url"])
+	}
+	return success({"host": host, "urls": normalized})
+}
+
+export func normalize_gsc(raw, dimensions, property_name, mode, limit, deterministic) {
+	mut rows := []
+	for source in take(dict_get(raw, "rows", []), limit) {
+		mut row := {}
+		keys_values := dict_get(source, "keys", [])
+		mut i := 0
+		while i < len(dimensions) && i < len(keys_values) { row[dimensions[i]] := keys_values[i]; i = i + 1 }
+		for name in ["clicks", "impressions", "ctr", "position"] { row[name] := dict_get(source, name, null) }
+		rows = push(rows, row)
+	}
+	return envelope("search.performance", "google-search-console", mode, rows, {
+		"property": property_name,
+		"dimensions": dimensions,
+		"response_aggregation_type": dict_get(raw, "responseAggregationType", null),
+		"metadata": dict_get(raw, "metadata", {})
+	}, deterministic)
+}
+
+export func normalize_analytics(raw, dimensions, metrics, property_name, mode, limit, deterministic) {
+	mut dim_headers := []
+	for item in dict_get(raw, "dimensionHeaders", []) { dim_headers = push(dim_headers, dict_get(item, "name", "")) }
+	if len(dim_headers) == 0 { dim_headers = dimensions }
+	mut metric_headers := []
+	for item in dict_get(raw, "metricHeaders", []) { metric_headers = push(metric_headers, dict_get(item, "name", "")) }
+	if len(metric_headers) == 0 { metric_headers = metrics }
+	mut rows := []
+	for source in take(dict_get(raw, "rows", []), limit) {
+		mut row := {}
+		values := dict_get(source, "dimensionValues", [])
+		mut i := 0
+		while i < len(dim_headers) && i < len(values) { row[dim_headers[i]] := dict_get(values[i], "value", null); i = i + 1 }
+		values = dict_get(source, "metricValues", [])
+		i = 0
+		while i < len(metric_headers) && i < len(values) { row[metric_headers[i]] := dict_get(values[i], "value", null); i = i + 1 }
+		rows = push(rows, row)
+	}
+	return envelope("analytics", "google-analytics-4", mode, rows, {"property": property_name, "dimensions": dim_headers, "metrics": metric_headers}, deterministic)
+}

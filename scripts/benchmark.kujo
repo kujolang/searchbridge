@@ -1,0 +1,19 @@
+from src.core import fixture, normalize_gsc
+
+mut iterations := 100
+argv := args()
+if len(argv) == 2 && argv[0] == "--iterations" { iterations = to_int(argv[1]) }
+if iterations < 1 || iterations > 100000 { eprint("benchmark iterations must be between 1 and 100000"); exit(2) }
+
+loaded := fixture("google-search-console")
+if !loaded["ok"] { eprint(loaded["error"]); exit(1) }
+started := performance_now()
+mut output_characters := 0
+mut i := 0
+while i < iterations {
+	result := normalize_gsc(loaded["value"], ["date", "query", "page"], "sc-domain:example.com", "fixture", 1000, true)
+	output_characters = output_characters + len(to_json(result)) + 1
+	i = i + 1
+}
+elapsed_ms := performance_now() - started
+print(to_json({"schema": "searchbridge.benchmark/v2", "engine": "kujo-native", "iterations": iterations, "milliseconds": elapsed_ms, "output_characters": output_characters, "operations_per_second": (iterations * 1000.0) / elapsed_ms}))
