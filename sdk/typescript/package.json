@@ -1,0 +1,1 @@
+{"name":"@kujolang/searchbridge-types","version":"0.3.0","private":true,"type":"module","scripts":{"check":"tsc --noEmit"},"devDependencies":{"typescript":"^5.9.2"}}

@@ -1,0 +1,4 @@
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export interface SearchBridgeTelemetry { latency_ms?: number; attempts?: number; retries?: number; response_bytes?: number; rows?: number; truncated?: boolean; cache_status?: string; cost_class?: string }
+export interface SearchBridgeResult<Row extends JsonValue = JsonValue> { schema: 'searchbridge.result/v1'; capability: string; provider: string; mode: 'fixture' | 'live'; retrieved_at: string; rows: Row[]; telemetry?: SearchBridgeTelemetry; [key: string]: JsonValue | SearchBridgeTelemetry | undefined }
+export interface SearchBridgeBatch { schema: 'searchbridge.batch/v1'; bounded_concurrency: number; execution?: string; cancel_file?: string; succeeded: number; failed: number; results: JsonValue[] }

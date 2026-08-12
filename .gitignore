@@ -10,3 +10,5 @@ __pycache__/
 searchbridge-output/
 .searchbridge-cache/
 dist/
+node_modules/
+sdk/rust/target/

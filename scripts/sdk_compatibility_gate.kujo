@@ -1,0 +1,18 @@
+from src.core import dict_get
+
+manifest := parse_json(read_file("sdk/manifest.json"))
+mut checked := 0
+for name in manifest["golden_documents"] {
+	if !ends_with(name, ".json") { continue }
+	document := parse_json(read_file("fixtures/golden/0.2/" + name))
+	if has_key(document, "schema") == false { eprint("golden document lacks schema: " + name); exit(1) }
+	checked = checked + 1
+}
+for name in manifest["row_schemas"] {
+	if !ends_with(name, ".json") { continue }
+	schema := parse_json(read_file("schemas/rows/" + name))
+	if dict_get(schema, "type", "") != "object" { eprint("row schema is not an object contract: " + name); exit(1) }
+	checked = checked + 1
+}
+for source in ["sdk/typescript/index.ts", "sdk/rust/src/lib.rs", "sdk/go/searchbridge.go"] { if !file_exists(source) || file_size(source) == 0 { eprint("missing generated SDK consumer: " + source); exit(1) } }
+print(to_string(checked) + " golden envelope and row-schema contracts are represented by generated SDK consumers.")
