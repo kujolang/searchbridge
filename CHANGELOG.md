@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 — 2026-08-12
+
+- Corrected the full Kujo source pin used by validation, platform, monitoring, live-contract, and release workflows. The signed `v0.2.1` tag remains immutable; `v0.2.2` is the qualified release.
+
 ## 0.2.1 — 2026-08-12
 
 - Added bounded native pagination, partial-success batches, streaming JSONL, cache/replay, structured secret-free telemetry, and CI health policies.

@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: kujolang/kujo
-          ref: 517c5369c6349038831951917478eb66100c1924
+          ref: 517c53678e261f9e23bb92f08d6d3c5755c24c13
           path: .runtime/kujo
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
       - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
