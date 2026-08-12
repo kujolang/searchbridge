@@ -1,0 +1,36 @@
+name: independent-release-verification
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable SearchBridge release tag
+        required: true
+        default: v0.2.4
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify-without-build-checkout:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download checksum-verified Kujo v1.0.1 runtime
+        run: |
+          set -euo pipefail
+          base=https://github.com/kujolang/kujo/releases/download/v1.0.1
+          curl -fsSLO "$base/kujo-v1.0.1-linux-x64.tar.gz"
+          curl -fsSLO "$base/kujo-v1.0.1-linux-x64.tar.gz.sha256"
+          sha256sum -c kujo-v1.0.1-linux-x64.tar.gz.sha256
+          mkdir runtime
+          tar -xzf kujo-v1.0.1-linux-x64.tar.gz -C runtime
+          echo "KUJO_BIN=$PWD/runtime/kujo" >> "$GITHUB_ENV"
+      - name: Download verifier only, never the build checkout
+        run: curl -fsSLo verify_release.kujo "https://raw.githubusercontent.com/kujolang/searchbridge/main/scripts/verify_release.kujo"
+      - name: Verify public release independently
+        env:
+          SEARCHBRIDGE_VERIFY_TAG: ${{ inputs.tag }}
+        run: '"$KUJO_BIN" run verify_release.kujo | tee independent-release-evidence.json'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: independent-release-verification-${{ inputs.tag }}
+          path: independent-release-evidence.json
+          retention-days: 90

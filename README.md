@@ -1,6 +1,6 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-0.2.4-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.3.0-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
@@ -11,16 +11,17 @@ providers. It preserves measurements and provenance without interpreting SEO
 performance, so CLIs, agents, CI jobs, and data pipelines can consume one
 stable contract without coupling themselves to every provider API.
 
-Version 0.2.4 is dependency-light: the application, provider adapters,
+Version 0.3.0 is dependency-light: the application, provider adapters,
 normalizers, test suite, contract gates, release metadata generator, and
 benchmark are written in Kujo. Portable POSIX and PowerShell launchers remain
 small operating-system integration boundaries.
 
 ## Quick start
 
-Install a Kujo build containing `encode_uri_component` (currently Kujo commit
-`517c53678e261f9e23bb92f08d6d3c5755c24c13`; the CI and release workflows pin
-it), then:
+SearchBridge 0.3.0 requires the prepared Kujo v1.0.2 runtime at commit
+`4463678d1badeb4ccff3f6cca8d052b9360f40c0`. CI pins that source commit until the release is explicitly
+authorized and published; after publication it will use the checksum-verified
+runtime archive. Then:
 
 ```bash
 git clone https://github.com/kujolang/searchbridge.git
@@ -60,7 +61,8 @@ Evidence commands support `--fixture`, `--offline`, `--deterministic`, `--out`,
 `--max-output-tokens`. (`--limit` remains a compatibility alias for bounded
 single-window normalization.) Scale and operations controls include `--page-size`,
 `--max-pages`, `--max-total-rows`, `--format jsonl`, `--cache-dir`, `--replay`,
-`--config`, `--profile`, `--health-policy`, and `--degraded-exit-code`. Run
+`--config`, `--profile`, `--health-policy`, `--degraded-exit-code`,
+`--cancel-file`, and opt-in `--otel-endpoint`. Run
 `./searchbridge --help` for the command list.
 
 ## Scale, replay, and CI health
@@ -86,9 +88,48 @@ records have explicit timestamps and caller-controlled freshness. Cache files
 still contain provider evidence and belong only in access-controlled,
 retention-managed directories. They are never included in releases.
 
-The bounded `batch` command returns `searchbridge.batch/v1` partial-success
-records, so one unavailable read does not discard healthy results. Mutation
-commands cannot enter a batch.
+The bounded `batch` worker pool overlaps independent reads up to
+`--max-concurrency`, preserves request ordering, cooperatively observes
+`--cancel-file` before dispatch and between retries, and returns
+`searchbridge.batch/v1` partial-success records. Mutation commands cannot enter
+a batch. Live GSC and GA4 JSONL exports normalize each page and append it to a
+temporary artifact before atomically publishing the output, so the declared
+full row budget is never retained in memory.
+
+## Protected replay and external adapters
+
+Replay storage can be authenticated and encrypted at rest with Kujo's
+AES-256-GCM and HMAC primitives. Operators can restrict which capabilities may
+enter replay storage.
+
+```bash
+export SEARCHBRIDGE_REPLAY_KEY='use-a-secret-manager-value'
+./searchbridge analytics --cache-dir .cache/searchbridge \
+  --cache-encryption-key-env SEARCHBRIDGE_REPLAY_KEY \
+  --cache-require-encryption --replay-capabilities analytics
+```
+
+`adapter-run` loads third-party read adapters without source edits. Manifests
+must have a detached RSA-SHA256 signature, and the invocation must allowlist
+every capability, exact HTTPS endpoint, and credential environment variable.
+
+## Evidence queries and observability
+
+The `evidence-query` command uses Kujo's bounded streaming JSONL reader. It can
+filter dotted fields and perform a constant-memory nested join without Python,
+Node, a database, or full-file loading.
+
+```bash
+./searchbridge evidence-query --evidence-path analytics.jsonl \
+  --filter-field provider --filter-equals google-analytics-4 \
+  --max-total-rows 500
+```
+
+OpenTelemetry export is disabled unless `--otel-endpoint` is provided. It emits
+OTLP JSON traces and metrics containing only command, schema, capability,
+provider, timing, retry, byte, count, truncation, cache, and cost-class fields.
+URLs, headers, tokens, bodies, and rows never enter the payload. `file:PATH`
+provides a local collector fixture path.
 
 ## Configuration profiles
 
@@ -127,6 +168,9 @@ fields remain `null` and are never inferred. JSON Schemas live in
 Capability-specific row schemas and canonical examples are indexed in
 [`docs/row-contracts.md`](docs/row-contracts.md). Immutable 0.2.x golden
 documents protect every public envelope in the compatibility release gate.
+Generated consumer types live in [`sdk/`](sdk/) for TypeScript, Rust, and Go;
+CI regenerates them and compiles consumers against every golden envelope and
+row schema.
 
 ```json
 {
@@ -145,6 +189,9 @@ documents protect every public envelope in the compatibility release gate.
 - Every submission requires the exact capability plus `--act --yes`, including fixtures.
 - Submission batches are limited to 1,000 HTTP(S) URLs on one validated host; fragments and user-info are rejected.
 - Custom submission endpoints are disabled, closing an SSRF and credential-forwarding surface.
+- Protected replay records authenticate encrypted evidence and enforce caller capability allowlists.
+- External adapter manifests require detached RSA signatures plus exact capability, endpoint, and credential-environment allowlists.
+- Opt-in OpenTelemetry export is tested against a sensitive-input corpus and excludes URLs, headers, credentials, bodies, and rows.
 - Live requests use bounded timeouts, response sizes, retry counts, row counts, and output budgets.
 - Only 429 and transient 5xx responses retry; `Retry-After` is capped and jittered, while provider bodies, URLs, request headers, and row contents are excluded from telemetry and errors.
 - Ahrefs calls may consume paid units. SearchBridge reports the cost class but never estimates SEO outcomes.
@@ -163,7 +210,9 @@ src/commands.kujo        capability routing and provider normalization
 src/transport.kujo       bounded HTTP, retry, and redaction behavior
 src/cache.kujo           credential-independent cache/replay records
 src/config.kujo          non-secret TOML profiles and environment precedence
-src/adapters.kujo        declarative third-party adapter contract and conformance
+src/adapters.kujo        signed third-party adapter loading and conformance
+src/evidence.kujo        bounded streaming JSONL filters and joins
+src/telemetry.kujo       privacy-preserving opt-in OTLP traces and metrics
 src/core.kujo            contracts, catalog, fixtures, and URL safety
 ```
 
@@ -180,7 +229,7 @@ bash scripts/validate.sh
 "${KUJO_BIN:-../kujo/target/release/kujo}" run examples/ci_quality_gate.kujo
 ```
 
-The validation gate runs 145 native contract assertions, validates emitted
+The validation gate runs 169 native contract assertions, validates emitted
 documents and capability rows, proves every 0.2.x golden envelope remains
 readable, checks provider snapshots, executes CLI and benchmark smokes, rejects
 Python runtime dependencies, and checks the diff. CI builds the pinned Kujo

@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 env:
-  KUJO_COMMIT: 517c53678e261f9e23bb92f08d6d3c5755c24c13
+  KUJO_COMMIT: 4463678d1badeb4ccff3f6cca8d052b9360f40c0
 jobs:
   kujo-native:
     runs-on: ubuntu-latest

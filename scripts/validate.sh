@@ -12,11 +12,17 @@ while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.ku
 "$KUJO_RUNTIME" run scripts/validate_document.kujo -- kujo.toml
 "$KUJO_RUNTIME" run scripts/compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_contract_gate.kujo
+"$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo
+"$KUJO_RUNTIME" run scripts/sdk_compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge analytics --fixture --offline --deterministic --format jsonl >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge batch --fixture --offline --deterministic --commands pagespeed,crux >/dev/null
+query_fixture="$(mktemp)"
+printf '%s\n' '{"provider":"crux","row":{"id":1}}' > "$query_fixture"
+KUJO_BIN="$KUJO_RUNTIME" ./searchbridge evidence-query --evidence-path "$query_fixture" --filter-field provider --filter-equals crux >/dev/null
+rm "$query_fixture"
 if KUJO_BIN="$KUJO_RUNTIME" ./searchbridge not-a-command >/dev/null 2>&1; then
 	printf 'SearchBridge validation failed: unknown command succeeded.\n' >&2
 	exit 1

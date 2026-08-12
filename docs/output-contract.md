@@ -34,6 +34,7 @@ Discovery commands use separate versioned envelopes:
 - `searchbridge.doctor/v1`
 - `searchbridge.adapter-conformance/v1`
 - `searchbridge.batch/v1`
+- `searchbridge.evidence-query/v1`
 
 Result envelopes may include additive `pagination` and `telemetry` objects.
 Pagination names the provider strategy and caller ceilings. Telemetry contains
@@ -41,6 +42,14 @@ only timing, retry, size, row, truncation, cache, and cost-class fields; it
 never contains request URLs, headers, credentials, or row values.
 
 `--format jsonl` emits one `searchbridge.row/v1` object per normalized row.
+For live paginated GSC and GA4 calls, rows are normalized page-by-page into an
+atomic output artifact; the returned in-process envelope does not retain the
+full row set after the file is published. `evidence-query` emits bounded joined
+or filtered rows under `searchbridge.evidence-query/v1`.
+
+Opt-in OpenTelemetry uses OTLP JSON `resourceSpans` and `resourceMetrics`.
+Those payloads are intentionally not evidence envelopes: they contain only
+operational dimensions and never URLs, request/response material, or rows.
 Capability row schemas live in [`../schemas/rows/`](../schemas/rows/), and
 golden documents in `fixtures/golden/0.2/` are the executable compatibility
 baseline for every public 0.2.x envelope.

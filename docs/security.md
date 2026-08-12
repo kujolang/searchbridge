@@ -12,15 +12,19 @@ SearchBridge is a provider gateway, not a credential broker or sandbox.
 - Retries apply only to connection failures, HTTP 429, and transient 5xx statuses. Numeric `Retry-After` is capped and jittered.
 - Retry telemetry excludes URLs, headers, bodies, credentials, and row values.
 - Config files reject secret-, token-, credential-, and key-shaped fields; credentials remain environment-only.
-- Replay hashes redact credential material. Replay files contain evidence, carry timestamps, obey caller freshness, and require access-controlled, retention-managed storage.
-- External adapters are declarative contracts; mutation access remains an explicit write boundary and cannot enter `batch`.
+- Replay hashes redact credential material. Operators may require authenticated AES-256-GCM records using an environment-provided key and may allowlist replayable capabilities. Expired records are deleted and tampered ciphertext fails closed.
+- External adapters are declarative read contracts loaded only from detached RSA-SHA256-signed manifests. Every external capability, exact endpoint, and credential environment variable requires an invocation allowlist; mutation access remains unavailable.
+- OpenTelemetry is explicit opt-in. OTLP trace and metric payloads contain bounded operational attributes only and exclude URLs, headers, tokens, bodies, and normalized rows. A committed redaction corpus exercises this boundary.
+- Batch cancellation is cooperative: new work and retries stop when the cancel file appears, while a currently executing provider request remains bounded by its timeout.
 - Ahrefs calls may consume paid provider units. Live output labels its cost class; fixture mode never consumes provider quota.
 - SearchBridge does not refresh OAuth tokens, open browsers, store credentials, or claim that an accepted URL was indexed.
 
 Provider properties, URLs, query rows, and analytics measurements may be
 sensitive operational data. Protect process environments, command history, CI
 secrets, and output paths according to the operator's data-handling policy.
-The same policy applies to cache/replay directories.
+The same policy applies to cache/replay directories. Encryption protects data
+at rest but does not replace filesystem permissions, retention controls, key
+rotation, or operator review of exported evidence.
 Strict deployments can add Kujo's `--deny-private-net` policy to deny private
 and local network destinations at the runtime boundary.
 

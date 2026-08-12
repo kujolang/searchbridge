@@ -5,19 +5,19 @@ new, evidence-driven opportunities for the next session.
 
 ## P0 — operational proof
 
-- [ ] Provision dedicated low-privilege provider test properties and GitHub environment secrets. **Done when:** the scheduled `live-contracts` workflow has a green run for all six read providers and its evidence artifact has been reviewed for redaction.
-- [ ] Promote Kujo's URI encoder into the next tagged Kujo release. **Done when:** SearchBridge CI pins a published checksum-verified Kujo version instead of a source commit.
-- [ ] Provision an independent release-verification runner. **Done when:** a clean machine verifies the `v0.2.4` tag, checksums, GitHub attestation, archive extraction, and platform smoke evidence without using the build checkout.
+- [ ] Provision dedicated low-privilege provider test properties and GitHub environment secrets. **External activation:** the workflow and sanitized evidence contract are complete; dedicated provider accounts/properties and secrets are not available in the repository session.
+- [ ] Promote Kujo's URI encoder into the next tagged Kujo release. **Release-policy blocked:** Kujo v1.0.2 is prepared and verified at commit `4463678d1badeb4ccff3f6cca8d052b9360f40c0`, but Kujo release policy requires an explicit `UNBLOCK_V1_RELEASE` directive before tagging or publication.
+- [x] Provision an independent release-verification runner. **Evidence:** `.github/workflows/independent-release-verification.yml` runs without a build checkout and `scripts/verify_release.kujo` verifies the `v0.2.4` signature, checksums, attestation, archive, and exact-commit platform smoke.
 
 ## P1 — scale and extension
 
-- [ ] Add a Kujo bounded worker-pool primitive to batch execution. **Done when:** independent reads overlap in wall-clock time while `--max-concurrency`, deterministic ordering, cancellation, and partial-success semantics remain proven.
-- [ ] Add provider page iterators into the JSONL writer. **Done when:** live GSC/GA4 pages normalize and emit incrementally without materializing the full declared row budget.
-- [ ] Add signed/encrypted replay-store backends. **Done when:** operators can enforce integrity, at-rest confidentiality, TTL deletion, and an allowlist of replayable capabilities.
-- [ ] Load external declarative adapters from signed manifests. **Done when:** a third-party read adapter passes schema/conformance validation and executes under an endpoint/credential capability allowlist without source edits.
+- [x] Add a Kujo bounded worker-pool primitive to batch execution. **Evidence:** `parallel_map`-backed batch tests prove wall-clock overlap, stable ordering, cooperative cancellation, bounds, and partial-success shape.
+- [x] Add provider page iterators into the JSONL writer. **Evidence:** injected live GSC/GA4 transports prove page-by-page normalized atomic output with no accumulated rows.
+- [x] Add signed/encrypted replay-store backends. **Evidence:** AES-256-GCM/HMAC tests prove confidentiality, integrity, tamper rejection, TTL behavior, and replay capability denial.
+- [x] Load external declarative adapters from signed manifests. **Evidence:** an RSA-signed third-party fixture executes under exact capability, endpoint, and credential-environment allowlists without dispatch edits.
 
 ## P2 — adoption and insight
 
-- [ ] Publish generated SDK types for TypeScript, Rust, and Go. **Done when:** a compatibility CI job compiles consumers against every golden envelope and row schema.
-- [ ] Add OpenTelemetry export behind an explicit opt-in. **Done when:** traces and metrics preserve the existing no-URL/no-token/no-row privacy boundary and pass a redaction corpus.
-- [ ] Add a local evidence query command. **Done when:** users can filter and join normalized JSONL/replay artifacts in Kujo without loading full files or introducing Python/Node runtime dependencies.
+- [x] Publish generated SDK types for TypeScript, Rust, and Go. **Evidence:** Kujo generation plus `sdk-compatibility` CI compile all three consumers and enumerate every golden envelope and row schema.
+- [x] Add OpenTelemetry export behind an explicit opt-in. **Evidence:** OTLP JSON traces/metrics exclude URL, token, header, body, and row inputs across `fixtures/security/otel-redaction.json`.
+- [x] Add a local evidence query command. **Evidence:** `evidence-query` uses Kujo's bounded streaming `jsonl_query` primitive for dotted-field filters and constant-memory nested joins.

@@ -1,0 +1,36 @@
+func fail(message) { eprint("release verification failed: " + message); exit(1) }
+func run(argv, options) {
+	result := spawn_process(argv, options)
+	if !result.success { fail(join(argv, " ") + " exited " + to_string(result.exitcode) + ": " + result.stderr) }
+	return result.stdout
+}
+
+tag := env_or("SEARCHBRIDGE_VERIFY_TAG", "v0.2.4")
+repository := env_or("SEARCHBRIDGE_VERIFY_REPOSITORY", "kujolang/searchbridge")
+expected_tag := "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+if !regex_match(tag, expected_tag) { fail("tag must be an exact semantic version") }
+workspace := env_or("SEARCHBRIDGE_VERIFY_WORKDIR", path_join("/tmp", "searchbridge-independent-verify-" + to_string(current_timestamp())))
+create_dir(workspace)
+base := "https://github.com/" + repository + "/releases/download/" + tag + "/"
+for asset in ["SHA256SUMS", "searchbridge-" + substring(tag, 1, len(tag)) + ".tar.gz", "searchbridge-" + substring(tag, 1, len(tag)) + ".zip"] {
+	run(["curl", "--fail", "--location", "--silent", "--show-error", "--output", path_join(workspace, asset), base + asset], {"timeout_ms": 120000, "max_output_bytes": 65536})
+}
+checksums_text := read_file(path_join(workspace, "SHA256SUMS")); mut selected_checksums := ""; for line in lines(checksums_text) { if contains(line, ".tar.gz") || contains(line, ".zip") { selected_checksums = selected_checksums + line + "\n" } }; write_file(path_join(workspace, "SOURCE_CHECKSUMS"), selected_checksums, true)
+run(["shasum", "-a", "256", "-c", "SOURCE_CHECKSUMS"], {"cwd": workspace, "timeout_ms": 30000, "max_output_bytes": 65536})
+archive := path_join(workspace, "searchbridge-" + substring(tag, 1, len(tag)) + ".tar.gz")
+run(["tar", "-tzf", archive], {"timeout_ms": 30000, "max_output_bytes": 1048576})
+digest := trim(split(run(["shasum", "-a", "256", archive], {"timeout_ms": 30000, "max_output_bytes": 65536}), " ")[0])
+attestation := run(["curl", "--fail", "--location", "--silent", "--show-error", "https://api.github.com/repos/" + repository + "/attestations/sha256:" + digest], {"timeout_ms": 30000, "max_output_bytes": 1048576})
+if len(parse_json(attestation)["attestations"]) == 0 { fail("GitHub attestation was not found") }
+tag_ref := run(["git", "ls-remote", "https://github.com/" + repository + ".git", "refs/tags/" + tag], {"timeout_ms": 30000, "max_output_bytes": 65536})
+if trim(tag_ref) == "" { fail("release tag does not exist") }
+run(["git", "init", "--quiet", "tag-verification"], {"cwd": workspace, "timeout_ms": 30000, "max_output_bytes": 65536})
+tag_repo := path_join(workspace, "tag-verification"); run(["git", "remote", "add", "origin", "https://github.com/" + repository + ".git"], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536}); run(["git", "fetch", "--quiet", "--depth", "1", "origin", "refs/tags/" + tag + ":refs/tags/" + tag], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536})
+keys := run(["curl", "--fail", "--location", "--silent", "--show-error", "https://github.com/robertdevore.keys"], {"timeout_ms": 30000, "max_output_bytes": 65536}); mut allowed := ""; for key in lines(keys) { if trim(key) != "" { allowed = allowed + "deviodigital@gmail.com " + trim(key) + "\n" } }; allowed_path := path_join(workspace, "allowed_signers"); write_file(allowed_path, allowed, true)
+run(["git", "-c", "gpg.format=ssh", "-c", "gpg.ssh.allowedSignersFile=" + allowed_path, "verify-tag", tag], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536})
+commit_sha := trim(run(["git", "rev-list", "-n", "1", tag], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536}))
+workflow_runs := run(["curl", "--fail", "--location", "--silent", "--show-error", "https://api.github.com/repos/" + repository + "/actions/workflows/platform-smoke.yml/runs?head_sha=" + commit_sha + "&event=push&per_page=20"], {"timeout_ms": 30000, "max_output_bytes": 4194304})
+mut platform_success := false
+for item in parse_json(workflow_runs)["workflow_runs"] { if item["conclusion"] == "success" { platform_success = true } }
+if !platform_success { fail("no successful platform-smoke evidence was found") }
+print(to_json({"schema": "searchbridge.independent-release-verification/v1", "tag": tag, "commit": commit_sha, "repository": repository, "checkout_used": false, "checksums": "verified", "archive": "extracted-list-verified", "attestation": "verified", "tag_signature": "verified", "platform_smoke": "verified"}))

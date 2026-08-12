@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-08-12
+
+- Added a true bounded Kujo worker pool for overlapping independent batch reads with stable ordering, cooperative cancellation, and partial-success records.
+- Stream live GSC and GA4 pages directly into atomically published JSONL output without retaining the declared full row budget.
+- Added integrity-checked AES-256-GCM replay storage, replay capability allowlists, and fail-closed encrypted-cache policy.
+- Added detached RSA-signed external adapter manifests with explicit capability, endpoint, and credential-environment allowlists.
+- Added opt-in privacy-preserving OTLP trace and metric export backed by a sensitive-input redaction corpus.
+- Added a bounded Kujo-native JSONL filter/join command and the corresponding streaming `jsonl_query` runtime primitive.
+- Generated and compile-tested TypeScript, Rust, and Go contract SDKs against all golden envelopes and row schemas.
+- Added checkout-independent release verification for tag signatures, checksums, extraction, attestations, and exact-commit platform-smoke evidence.
+
 ## 0.2.4 — 2026-08-12
 
 - Included the Windows Kujo source-build prerequisite and exact `x64-windows-static-md` OpenSSL triplet in the qualified release source. Earlier signed tags remain immutable; `v0.2.4` is the final qualified 0.2.x release.
