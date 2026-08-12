@@ -27,6 +27,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
           toolchain: stable
+      - name: Install Windows OpenSSL dependency
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
       - run: cargo build --release --manifest-path kujo/Cargo.toml
       - name: POSIX launcher and package smoke
         if: runner.os != 'Windows'
