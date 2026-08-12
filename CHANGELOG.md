@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 — 2026-08-12
+
+- Included the Windows Kujo source-build prerequisite and exact `x64-windows-static-md` OpenSSL triplet in the qualified release source. Earlier signed tags remain immutable; `v0.2.4` is the final qualified 0.2.x release.
+
 ## 0.2.3 — 2026-08-12
 
 - Supplied the required stable toolchain input to every pinned Rust setup action. The signed `v0.2.2` tag remains immutable; `v0.2.3` is the qualified release.

@@ -1,6 +1,6 @@
 [project]
 name = "searchbridge"
-version = "0.2.3"
+version = "0.2.4"
 entry = "searchbridge.kujo"
 
 [scripts]
