@@ -25,6 +25,7 @@ jobs:
         run: |
           .runtime/kujo/target/release/kujo run scripts/provider_contract_gate.kujo
           .runtime/kujo/target/release/kujo run scripts/provider_snapshot_gate.kujo
+          .runtime/kujo/target/release/kujo run scripts/upstream_metadata_gate.kujo
       - name: Open review issue on drift
         if: steps.contract.outcome == 'failure'
         env:

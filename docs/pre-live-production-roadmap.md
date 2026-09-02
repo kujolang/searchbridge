@@ -30,7 +30,7 @@ provider behavior, not discover missing core architecture.
 - [x] Replace declarative/hard-coded conformance success flags with behavioral
   operation tests for success, empty, partial, provider error, rate limiting,
   pagination, bounds, redaction, and cost metadata.
-- [ ] Make drift checks compare sanitized upstream metadata or response shapes
+- [x] Make drift checks compare sanitized upstream metadata or response shapes
   when a provider exposes a suitable source.
 
 ## 3. Reliability, scale, and recovery

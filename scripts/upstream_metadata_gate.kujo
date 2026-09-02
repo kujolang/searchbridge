@@ -1,0 +1,25 @@
+from src.adapters import canonical_json
+from src.core import dict_get
+
+func at_path(value, path) { mut current := value; for key in path { if type(current) != "dict" || has_key(current, key) == 0 { return null }; current = current[key] }; return current }
+func schema_fields(document, name) { if name == "" { return [] }; schema := dict_get(dict_get(document, "schemas", {}), name, {}); return sort(keys(dict_get(schema, "properties", {}))) }
+
+snapshot := parse_json(read_file("fixtures/upstream-metadata.json")); if snapshot["schema"] != "searchbridge.upstream-metadata/v1" { eprint("invalid upstream metadata snapshot"); exit(1) }
+mut failures := []
+for source in snapshot["sources"] {
+	response := http_request(source["url"], {"method": "GET", "headers": {"Accept": "application/json", "User-Agent": "Kujo-SearchBridge-Contract-Monitor"}, "timeout": 20, "redirects": "none", "destination_policy": "deny_private", "pin_dns": true, "max_response_bytes": 8388608})
+	match response {
+		case Ok(raw): {
+			status := dict_get(raw, "_status", dict_get(raw, "status", 0)); if status < 200 || status >= 300 { failures = push(failures, source["id"] + " discovery returned HTTP " + to_string(status)); continue }
+			try {
+				document := parse_json(dict_get(raw, "_body", dict_get(raw, "body", ""))); method := at_path(document, source["method_pointer"]); if type(method) != "dict" { failures = push(failures, source["id"] + " method metadata disappeared"); continue }
+				shape := {"name": document["name"], "version": document["version"], "rootUrl": document["rootUrl"], "method": {"path": dict_get(method, "path", null), "httpMethod": dict_get(method, "httpMethod", null), "parameterOrder": dict_get(method, "parameterOrder", null), "parameters": sort(keys(dict_get(method, "parameters", {}))), "request": dict_get(method, "request", null), "response": dict_get(method, "response", null)}, "request_fields": schema_fields(document, source["request_schema"]), "response_fields": schema_fields(document, source["response_schema"])}
+				if sha256(canonical_json(shape) + "\n") != source["shape_sha256"] { failures = push(failures, source["id"] + " sanitized discovery shape drift") }
+			} except parse_error { failures = push(failures, source["id"] + " discovery returned malformed JSON") }
+		}
+		case Err(network_error): { failures = push(failures, source["id"] + " discovery request failed") }
+		case other: { failures = push(failures, source["id"] + " discovery request was unexpected") }
+	}
+}
+if len(failures) > 0 { for failure in failures { eprint(failure) }; exit(1) }
+print("Sanitized public upstream discovery shapes match approved snapshots.")
