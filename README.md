@@ -94,6 +94,17 @@ records have explicit timestamps and caller-controlled freshness. Cache files
 still contain provider evidence and belong only in access-controlled,
 retention-managed directories. They are never included in releases.
 
+`cache-maintenance` audits replay directories without mutation. Migration,
+key rotation, retention cleanup, and corruption quarantine require `--act
+--yes`; encrypted operations name keys by environment variable only.
+
+```bash
+./searchbridge cache-maintenance --cache-dir .cache/searchbridge --cache-action audit
+./searchbridge cache-maintenance --cache-dir .cache/searchbridge \
+  --cache-action rotate --cache-old-key-env SEARCHBRIDGE_OLD_KEY \
+  --cache-new-key-env SEARCHBRIDGE_NEW_KEY --act --yes
+```
+
 The bounded `batch` worker pool overlaps independent reads up to
 `--max-concurrency`, preserves request ordering, cooperatively observes
 `--cancel-file` before dispatch and between retries, and returns

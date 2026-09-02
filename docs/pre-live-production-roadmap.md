@@ -42,7 +42,7 @@ provider behavior, not discover missing core architecture.
   private destinations, throttling, and dropped connections.
 - [x] Add load, soak, cancellation, and fault-injection qualification.
 - [x] Add spillable, disk-budgeted evidence joins.
-- [ ] Add cache v1 audit/migration, key rotation, retention cleanup, corruption
+- [x] Add cache v1 audit/migration, key rotation, retention cleanup, corruption
   recovery, and restrictive file-permission tests.
 
 ## 4. Contract and security hardening

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUJO_RUNTIME="${KUJO_BIN:-$ROOT/../kujo/target/release/kujo}"
 if [[ ! -x "$KUJO_RUNTIME" ]] && command -v kujo >/dev/null 2>&1; then KUJO_RUNTIME="$(command -v kujo)"; fi
@@ -14,6 +15,7 @@ while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.ku
 "$KUJO_RUNTIME" run scripts/provider_contract_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_snapshot_gate.kujo
 bash scripts/run_network_fault_gate.sh
+bash scripts/cache_permission_gate.sh
 "$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo
 "$KUJO_RUNTIME" run scripts/sdk_compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null

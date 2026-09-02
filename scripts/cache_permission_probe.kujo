@@ -1,0 +1,3 @@
+from src.cache import write_cached_response
+
+directory := args()[0]; request_hash := sha256("permission-probe"); result := write_cached_response(directory, request_hash, 200, {"rows": []}, current_timestamp(), now_utc()); if !result["ok"] { eprint(result["error"]); exit(1) }; print(path_join(directory, request_hash + ".json"))

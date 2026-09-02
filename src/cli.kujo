@@ -6,13 +6,14 @@ from src.evidence import query_evidence
 from src.telemetry import export_otel
 from src.registry import resolve, operation_for, adapters
 from src.provider_runtime import execute_new_provider
+from src.cache import maintain_cache
 
 func bool_flags() { return ["fixture", "offline", "replay", "resume-task", "deterministic", "act", "yes", "cache-require-encryption", "allow-paid"] }
-func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "task-state-dir", "task-state-max-age", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field", "join-strategy", "join-temp-dir", "max-join-disk-bytes"] }
+func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "cache-action", "cache-old-key-env", "cache-new-key-env", "task-state-dir", "task-state-max-age", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field", "join-strategy", "join-temp-dir", "max-join-disk-bytes"] }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
 func apply_reliability(options, operation) { policy := dict_get(operation, "reliability", {}); max_retries := dict_get(policy, "max_retries", options["retries"]); if options["retries"] > max_retries { options["retries"] = max_retries }; options["retry_statuses"] = dict_get(policy, "retry_statuses", [429, 500, 502, 503, 504]); options["retry_delay_cap_ms"] = dict_get(policy, "retry_delay_cap_ms", 5000); options["circuit_failure_threshold"] = dict_get(policy, "circuit_failure_threshold", 3); return options }
-func commands() { return ["doctor", "capabilities", "providers", "agent-catalog", "version", "adapter-conformance", "adapter-run", "evidence-query", "batch", "fetch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
+func commands() { return ["doctor", "capabilities", "providers", "agent-catalog", "version", "adapter-conformance", "adapter-run", "evidence-query", "cache-maintenance", "batch", "fetch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
 
 func default_options() {
 	return {
@@ -23,7 +24,7 @@ func default_options() {
 		"dimensions": "", "metrics": "", "url": "", "urls": [],
 		"strategy": "mobile", "form_factor": "PHONE", "target": "", "keyword": "",
 		"country": "US", "location": "United States", "language": "en", "device": "desktop", "operation": "", "route_preferences": "", "enabled_providers": "", "max_providers": 8, "max_calls": 0, "max_provider_units": 0.0, "max_polls": 20, "max_elapsed_ms": 120000, "key_location": "", "endpoint": "", "capability": "", "transport": null,
-		"format": "json", "cache_dir": "", "cache_max_age": 86400, "cache_encryption_key_env": "", "replay_capabilities": "", "task_state_dir": "", "task_state_max_age": 86400, "config": "", "profile": "", "health_policy": "info", "degraded_exit_code": 3, "require_capabilities": "", "commands": "", "max_concurrency": 4, "cancel_file": "",
+		"format": "json", "cache_dir": "", "cache_max_age": 86400, "cache_encryption_key_env": "", "replay_capabilities": "", "cache_action": "audit", "cache_old_key_env": "", "cache_new_key_env": "", "task_state_dir": "", "task_state_max_age": 86400, "config": "", "profile": "", "health_policy": "info", "degraded_exit_code": 3, "require_capabilities": "", "commands": "", "max_concurrency": 4, "cancel_file": "",
 		"adapter_manifest": "", "adapter_signature": "", "adapter_key_env": "", "adapter_allow_capabilities": "", "adapter_allow_endpoints": "", "adapter_allow_credentials": "",
 		"otel_endpoint": "", "otel_service_name": "searchbridge", "evidence_path": "", "filter_field": "", "filter_equals": "", "join_path": "", "left_field": "", "right_field": "", "join_strategy": "auto", "join_temp_dir": "", "max_join_disk_bytes": 67108864
 	}
@@ -84,6 +85,7 @@ export func parse_options(tokens) {
 	if options["max_providers"] < 1 || options["max_providers"] > 8 || options["max_calls"] < 0 || options["max_calls"] > 1000 || options["max_provider_units"] < 0 || options["max_polls"] < 1 || options["max_polls"] > 20 || options["max_elapsed_ms"] < 1 || options["max_elapsed_ms"] > 120000 { return failure("provider execution budgets are outside supported bounds") }
 	if !includes(["json", "jsonl"], options["format"]) { return failure("--format must be json or jsonl") }
 	if !includes(["info", "warn", "fail"], options["health_policy"]) { return failure("--health-policy must be info, warn, or fail") }
+	if !includes(["audit", "migrate", "rotate", "cleanup", "recover"], options["cache_action"]) { return failure("--cache-action must be audit, migrate, rotate, cleanup, or recover") }
 	if !includes(["auto", "nested", "spill"], options["join_strategy"]) || options["max_join_disk_bytes"] < 1048576 || options["max_join_disk_bytes"] > 1073741824 { return failure("join strategy or disk budget is outside supported bounds") }
 	if options["degraded_exit_code"] < 1 || options["degraded_exit_code"] > 125 { return failure("--degraded-exit-code must be between 1 and 125") }
 	return {"ok": true, "value": options}
@@ -165,6 +167,7 @@ export func dispatch(command, options) {
 	if command == "adapter-conformance" { return {"ok": true, "value": adapter_conformance_report()} }
 	if command == "adapter-run" { options["current_capability"] := options["capability"]; return finalize_result(command, options, run_signed_adapter(options)) }
 	if command == "evidence-query" { return finalize_result(command, options, query_evidence(options)) }
+	if command == "cache-maintenance" { if options["cache_action"] != "audit" && (!options["act"] || !options["yes"]) { return failure("cache mutations require --act --yes") }; return maintain_cache(options["cache_dir"], options["cache_action"], options["cache_max_age"], options["cache_old_key_env"], options["cache_new_key_env"], current_timestamp(), now_utc()) }
 	if command == "batch" { return finalize_result(command, options, command_batch(options)) }
 	if command == "fetch" { return finalize_result(command, options, command_fetch(options)) }
 	if includes(["doctor", "capabilities", "providers", "agent-catalog", "version"], command) { return static_command(command, options["deterministic"]) }
@@ -324,7 +327,7 @@ func print_help() {
 	print("")
 	print("Commands: doctor, capabilities, providers, agent-catalog, version, search-performance,")
 	print("          fetch, analytics, inspect-url, pagespeed, crux, backlinks, keyword-data, batch, submit,")
-	print("          adapter-conformance, adapter-run, evidence-query")
+	print("          adapter-conformance, adapter-run, evidence-query, cache-maintenance")
 	print("")
 	print("Common options: --fixture --offline --deterministic --out PATH")
 	print("                --timeout SEC --retries N --limit N --format json|jsonl")
