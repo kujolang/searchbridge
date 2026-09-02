@@ -23,6 +23,10 @@ export func validate_adapter(adapter) {
 
 func allowed(values, value) { for item in values { if item == value { return true } }; return false }
 
+func semver_parts(value) { if !regex_match(value, "^[0-9]+\\.[0-9]+\\.[0-9]+$") { return null }; raw := split(value, "."); return [to_int(raw[0]), to_int(raw[1]), to_int(raw[2])] }
+func semver_compare(left, right) { a := semver_parts(left); b := semver_parts(right); if type(a) == "null" || type(b) == "null" { return null }; mut i := 0; while i < 3 { if a[i] < b[i] { return -1 }; if a[i] > b[i] { return 1 }; i = i + 1 }; return 0 }
+export func adapter_version_compatible(minimum, maximum) { lower := semver_compare(VERSION, minimum); if type(lower) == "null" || lower < 0 { return false }; if maximum != "" { upper := semver_compare(VERSION, maximum); if type(upper) == "null" || upper > 0 { return false } }; runtime_parts := semver_parts(VERSION); minimum_parts := semver_parts(minimum); return runtime_parts[0] == minimum_parts[0] }
+
 export func canonical_json(value) {
 	if type(value) == "dict" { mut members := []; for key in sort(keys(value)) { members = push(members, to_json(key) + ":" + canonical_json(value[key])) }; return "{" + join(members, ",") + "}" }
 	if type(value) == "list" { mut members := []; for item in value { members = push(members, canonical_json(item)) }; return "[" + join(members, ",") + "]" }
@@ -35,7 +39,7 @@ export func validate_adapter_v2(adapter) {
 	for field in ["contract", "id", "adapter_version", "provider_api_version", "minimum_searchbridge_version", "capabilities", "operations", "credentials", "cost_class", "fixtures", "publisher", "signature"] { if has_key(adapter, field) == 0 { errors = push(errors, "missing " + field) } }
 	if dict_get(adapter, "contract", "") != "searchbridge-adapter/v2" { errors = push(errors, "unsupported adapter contract") }
 	if !regex_match(dict_get(adapter, "id", ""), "^[a-z][a-z0-9-]*$") { errors = push(errors, "invalid adapter id") }
-	if !regex_match(dict_get(adapter, "adapter_version", ""), "^[0-9]+\\.[0-9]+\\.[0-9]+$") || dict_get(adapter, "minimum_searchbridge_version", "") != "0.4.0" { errors = push(errors, "unknown adapter or minimum runtime version") }
+	minimum_version := dict_get(adapter, "minimum_searchbridge_version", ""); maximum_version := dict_get(adapter, "maximum_searchbridge_version", ""); if !regex_match(dict_get(adapter, "adapter_version", ""), "^[0-9]+\\.[0-9]+\\.[0-9]+$") || !adapter_version_compatible(minimum_version, maximum_version) { errors = push(errors, "adapter version range is incompatible with this runtime") }
 	if !allowed(["free", "quota", "metered", "expensive", "unknown"], dict_get(adapter, "cost_class", "")) { errors = push(errors, "unknown cost class") }
 	for credential in dict_get(adapter, "credentials", []) {
 		if !allowed(["none", "bearer", "header", "basic", "query", "body"], dict_get(credential, "mode", "")) { errors = push(errors, "unknown credential mode") }
@@ -70,6 +74,7 @@ export func validate_adapter_v2(adapter) {
 			if !regex_match(dict_get(rule, "target", ""), "^[a-z][a-z0-9_]*$") || (!starts_with(dict_get(rule, "source", ""), "/") && !starts_with(dict_get(rule, "source", ""), "$query.")) { errors = push(errors, "normalization mapping is invalid") }
 			if !allowed(["string", "string-or-null", "number", "number-or-null", "integer", "integer-or-null", "boolean", "boolean-or-null", "uri-or-null"], dict_get(rule, "coerce", "")) { errors = push(errors, "normalization coercion is invalid") }
 		}
+		deprecation := dict_get(operation, "deprecation", {}); if len(keys(deprecation)) > 0 { removal := dict_get(deprecation, "removal_version", ""); if dict_get(deprecation, "status", "") != "deprecated" || dict_get(deprecation, "replacement", "") == "" || type(semver_compare(removal, VERSION)) == "null" || semver_compare(removal, VERSION) <= 0 { errors = push(errors, "operation deprecation metadata is incomplete or already expired") } }
 	}
 	signature := dict_get(adapter, "signature", {}); if dict_get(signature, "algorithm", "") != "rsa-sha256" || dict_get(signature, "canonicalization", "") != "jcs" { errors = push(errors, "unknown signature algorithm or canonicalization") }
 	if len(errors) == 0 { schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest-v2.schema.json"))); if !schema_check["valid"] { errors = push(errors, "adapter manifest does not satisfy v2 schema") } }

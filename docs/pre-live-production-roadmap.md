@@ -47,7 +47,7 @@ provider behavior, not discover missing core architecture.
 
 ## 4. Contract and security hardening
 
-- [ ] Establish schema/adapter compatibility ranges, deprecation rules, and
+- [x] Establish schema/adapter compatibility ranges, deprecation rules, and
   migration fixtures.
 - [ ] Decide whether `crawl.data` becomes executable or is removed from the
   advertised public contract before release.

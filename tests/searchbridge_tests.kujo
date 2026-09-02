@@ -2,7 +2,7 @@ from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_
 from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode, query_fingerprint, value_within_bounds, dict_get
 from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, circuit_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, read_protected_cached_response, audit_cache, maintain_cache
-from src.adapters import validate_adapter, validate_adapter_v2, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter, external_pagination_contract_probe
+from src.adapters import validate_adapter, validate_adapter_v2, adapter_version_compatible, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter, external_pagination_contract_probe
 from src.commands import pagination_contract_probe
 from src.telemetry import otel_payload, validate_otel_privacy, export_otel
 from src.registry import adapters, validate_registry, providers_for, resolve, agent_catalog
@@ -52,6 +52,8 @@ conformance := adapter_conformance_report()
 check(conformance["ok"] && conformance["adapter_count"] == 12 && len(conformance["reports"]) == 12, "built-in and external adapters pass one conformance report")
 registry := adapters()
 check(validate_registry(registry)["ok"] && len(keys(registry)) == 11, "canonical adapter v2 registry validates")
+for version_case in parse_json(read_file("fixtures/adapter-version-cases.json"))["cases"] { check(adapter_version_compatible(version_case["minimum"], version_case["maximum"]) == version_case["compatible"], "adapter compatibility range fixture is enforced") }
+mut deprecated_adapter := parse_json(read_file("adapters/plausible/adapter.json")); mut deprecated_operation := deprecated_adapter["operations"][0]; deprecated_operation["deprecation"] = {"status": "deprecated", "replacement": "analytics-v2", "removal_version": "0.5.0"}; deprecated_adapter["operations"] = [deprecated_operation]; check(validate_adapter_v2(deprecated_adapter)["ok"], "future deprecation metadata remains compatible during its announced window"); deprecated_operation["deprecation"] = {"status": "deprecated", "replacement": "analytics-v2", "removal_version": "0.4.0"}; deprecated_adapter["operations"] = [deprecated_operation]; check(!validate_adapter_v2(deprecated_adapter)["ok"], "expired adapter operations fail closed at their removal version")
 check(providers_for("serp.results", false) == ["dataforseo", "serpapi"], "registry discovers providers in deterministic order")
 explicit_route := resolve("analytics", "google-analytics-4", [], [])
 check(explicit_route["ok"] && explicit_route["value"]["mode"] == "explicit", "registry resolves explicit providers")

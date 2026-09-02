@@ -19,6 +19,7 @@
 - Added a deterministic 100,000-row load gate, 1,000-iteration soak, worker-pool/cancellation checks, and retry/circuit/pagination fault injection to every full validation.
 - Added indexed SQLite spill joins with explicit input/disk/row bounds, deterministic cleanup, strategy telemetry, and nested-join parity tests.
 - Added guarded cache audit, v1 encryption migration, key rotation, retention cleanup, corruption quarantine, and owner-only permission qualification.
+- Added executable adapter runtime ranges, same-major compatibility enforcement, deprecation/removal rules, and migration boundary fixtures.
 
 ## 0.3.0 — 2026-08-12
 

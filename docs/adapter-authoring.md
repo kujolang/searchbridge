@@ -19,8 +19,24 @@ registry exists.
 
 The manifest must be canonical JSON and satisfy `schemas/adapter-manifest-v2.schema.json`. Its detached RSA-SHA256 signature covers the canonical manifest bytes. The manifest binds every auxiliary file by SHA-256, so fixture or mapping tampering fails before credentials are read. Trust uses the publisher public-key fingerprint; the display name is not an identity claim.
 
+Adapters declare an inclusive `minimum_searchbridge_version` and may declare
+an inclusive `maximum_searchbridge_version`. The runtime accepts only valid
+SemVer ranges within its current major version. A deprecated operation remains
+loadable only when its metadata names a replacement and a future
+`removal_version`; it fails closed at that version. Breaking capability or row
+changes require a new contract version, while additive optional fields remain
+compatible within the major series. The cases in
+`fixtures/adapter-version-cases.json` are the executable migration boundary.
+
 The Plausible package under `adapters/plausible/` is the reference. Its committed key is a package verification key, not a provider credential. Load that public key into the environment variable named by `--adapter-key-env`; never place API tokens in manifests or configuration.
 
 ## v1 migration
 
-Legacy manifests without a `contract` field continue through the v1 loader. To migrate, replace the single request table with capability declarations and read operations, bind credentials to exact endpoint templates, declare cost/retention, move fixtures into package files with SHA-256 digests, emit canonical JSON, and sign the complete manifest. External writes remain unsupported in both versions.
+Legacy manifests without a `contract` field continue through the v1 loader for
+the 0.4 release series. To migrate, replace the single request table with
+capability declarations and read operations, bind credentials to exact endpoint
+templates, declare cost/retention/reliability and a compatible runtime range,
+move fixtures into package files with SHA-256 digests, emit canonical JSON, and
+sign the complete manifest. External writes remain unsupported in both
+versions. Removal of the v1 loader requires a major release and one full minor
+release of deprecation notice.
