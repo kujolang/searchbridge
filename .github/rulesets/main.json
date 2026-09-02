@@ -10,7 +10,9 @@
     {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": true, "do_not_enforce_on_create": false, "required_status_checks": [
       {"context": "kujo-native"},
       {"context": "generated-contracts"},
-      {"context": "launcher-package"},
+      {"context": "launcher-package (ubuntu-latest)"},
+      {"context": "launcher-package (macos-latest)"},
+      {"context": "launcher-package (windows-latest)"},
       {"context": "codeql (javascript-typescript)"},
       {"context": "codeql (go)"},
       {"context": "dependencies"},

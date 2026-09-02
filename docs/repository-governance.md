@@ -6,7 +6,8 @@ review conversations, and pass the following checks before merge:
 
 - `kujo-native` (`validate` workflow)
 - `generated-contracts` (`sdk-compatibility` workflow)
-- `launcher-package` (`platform-smoke` workflow)
+- `launcher-package (ubuntu-latest)`, `launcher-package (macos-latest)`, and
+  `launcher-package (windows-latest)` (`platform-smoke` workflow)
 - `codeql (javascript-typescript)`
 - `codeql (go)`
 - `dependencies`
