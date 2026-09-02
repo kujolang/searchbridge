@@ -38,7 +38,7 @@ provider behavior, not discover missing core architecture.
 - [x] Add operation-specific retry/rate-limit policy and circuit breaking.
 - [x] Make asynchronous provider tasks resumable with bounded polling and
   interruption cleanup.
-- [ ] Add local HTTP/TLS simulations for redirects, timeouts, malformed data,
+- [x] Add local HTTP/TLS simulations for redirects, timeouts, malformed data,
   private destinations, throttling, and dropped connections.
 - [ ] Add load, soak, cancellation, and fault-injection qualification.
 - [ ] Add spillable, disk-budgeted evidence joins.

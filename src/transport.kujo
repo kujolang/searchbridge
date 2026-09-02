@@ -60,6 +60,7 @@ export func request_json(url, method, body, headers, policy, transport) {
 	for key in keys(headers) { merged[key] := headers[key] }
 	if type(body) != "null" { merged["Content-Type"] := "application/json" }
 	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "destination_policy": "deny_private", "pin_dns": true, "max_response_bytes": MAX_PROVIDER_BYTES}
+	if dict_get(policy, "_test_allow_private", false) { request_options = {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "pin_dns": false, "max_response_bytes": MAX_PROVIDER_BYTES} }
 	if type(body) != "null" { request_options["body"] = to_json(body) }
 	mut call_transport := transport; if type(call_transport) == "null" { call_transport = default_transport }
 	mut attempt := 0
