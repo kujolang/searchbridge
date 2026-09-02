@@ -24,6 +24,7 @@
 - Named the exact non-JCS signing format as `searchbridge-canonical-json/v1` and added multi-key trust rotation plus fingerprint revocation.
 - Added deterministic property testing across URL normalization, endpoint rejection, JSON canonicalization, CSV bounds, signature integrity, cache hashing, and redaction.
 - Added a repository threat model, security reporting policy, CODEOWNERS, Dependabot, pinned CodeQL/dependency/secret gates, and a machine-readable protected-branch policy.
+- Added a runnable dependency-free stdio MCP server generated from the agent catalog with fail-closed submission confirmation.
 
 ## 0.3.0 — 2026-08-12
 

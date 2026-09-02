@@ -59,7 +59,7 @@ provider behavior, not discover missing core architecture.
 
 ## 5. Agent, SDK, and distribution readiness
 
-- [ ] Ship a runnable local stdio MCP server if MCP is a supported integration,
+- [x] Ship a runnable local stdio MCP server if MCP is a supported integration,
   generated from the same catalog and preserving submission confirmation.
 - [ ] Package usable TypeScript, Rust, and Go SDK artifacts with typed errors,
   streaming readers, validation helpers, examples, checksums, and provenance.
