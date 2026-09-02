@@ -28,8 +28,10 @@ export func now_text(deterministic) {
 
 export func clean_error(value) {
 	mut text := to_string(value)
-	text = regex_replace(text, "(?i)(authorization|token|api[_-]?key|key)=([^&\\s]+)", "$1=[REDACTED]")
+	text = regex_replace(text, "(?i)(authorization|token|api[_-]?key|key|secret|credential|password)=([^&\\s]+)", "$1=[REDACTED]")
 	text = regex_replace(text, "(?i)(bearer\\s+)[A-Za-z0-9._~+/-]+", "$1[REDACTED]")
+	text = regex_replace(text, "(?i)(basic\\s+)[A-Za-z0-9+/=]+", "$1[REDACTED]")
+	text = regex_replace(text, "(?i)(\"(?:authorization|token|api[_-]?key|key|secret|credential|password)\"\\s*:\\s*\")[^\"]+", "$1[REDACTED]")
 	if len(text) > 240 { text = substring(text, 0, 240) }
 	return text
 }

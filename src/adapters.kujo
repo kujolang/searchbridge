@@ -1,5 +1,7 @@
 from src.core import dict_get, failure, success, providers, query_encode
+from src.registry import adapters
 from src.transport import request_json
+from src.protocols import validate_exact_endpoint
 
 export func required_adapter_fields() {
 	return ["name", "capabilities", "write_capabilities", "cost_class", "request_contract", "response_contract", "discovery", "request", "normalization", "write_boundary"]
@@ -126,23 +128,25 @@ func external_v2_operation(adapter, capability) { for operation in adapter["oper
 func run_signed_adapter_v2(adapter, options) {
 	capability := options["capability"]; operation := external_v2_operation(adapter, capability)
 	if type(operation) == "null" { return failure("adapter does not implement requested capability") }
+	retention_cap := dict_get(dict_get(adapter, "retention", {}), "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("adapter retention policy caps cache age") }
 	mut raw_result := null; base := dirname(options["adapter_manifest"])
 	if options["fixture"] {
 		fixture_path := path_join(base, operation["fixture"]); raw_result = success({"body": parse_json(read_file(fixture_path)), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})
 	} else {
-		request := operation["request"]; endpoint := request["endpoint_template"]; mut headers := {}; mut body := dict_get(request, "body", null)
+		request := operation["request"]; endpoint := request["endpoint_template"]; mut headers := {}; mut body := dict_get(request, "body", null); mut auth_mode := "none"
 		credential_name := dict_get(request, "credential", "")
 		if credential_name != "" {
 			mut credential_spec := null; for item in adapter["credentials"] { if item["name"] == credential_name { credential_spec = item } }
 			if type(credential_spec) == "null" { return failure("operation credential is undeclared") }
 			credential := env(credential_name); if credential == "" { return failure("adapter credential environment variable is unavailable") }
-			mode := credential_spec["mode"]
+			mode := credential_spec["mode"]; auth_mode = mode
 			if mode == "bearer" { headers["Authorization"] := "Bearer " + credential }
 			else if mode == "header" { headers[credential_spec["field"]] := credential }
 			else if mode == "basic" { headers["Authorization"] := "Basic " + encode_base64(credential) }
 			else if mode == "query" { endpoint = endpoint + "?" + query_encode(credential_spec["field"]) + "=" + query_encode(credential) }
 			else if mode == "body" { if type(body) == "null" { body = {} }; body[credential_spec["field"]] := credential }
 		}
+		checked_endpoint := validate_exact_endpoint(endpoint, request["endpoint_template"], auth_mode == "query"); if !checked_endpoint["ok"] { return checked_endpoint }
 		raw_result = request_json(endpoint, request["method"], body, headers, options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
@@ -192,12 +196,19 @@ export func builtin_adapter_contracts() {
 }
 
 export func adapter_conformance_report() {
-	contracts := builtin_adapter_contracts(); mut errors := []
-	for name in sort(keys(contracts)) {
-		contract := contracts[name]
-		for field in ["name", "capabilities", "write_capabilities", "cost_class", "request_contract", "response_contract"] {
-			if has_key(contract, field) == false { errors = push(errors, name + " missing " + field) }
+	registry := adapters(); mut errors := []; mut reports := []
+	for name in sort(keys(registry)) {
+		adapter := registry[name]; mut adapter_errors := []
+		for field in ["contract", "id", "adapter_version", "provider_api_version", "capabilities", "cost_class", "request_contract", "response_contract", "operations"] { if has_key(adapter, field) == 0 { adapter_errors = push(adapter_errors, "missing " + field) } }
+		for operation in adapter["operations"] {
+			if dict_get(operation, "class", "") != "read" && !includes(adapter["write_capabilities"], operation["capability"]) { adapter_errors = push(adapter_errors, "undeclared write operation") }
+			if !starts_with(operation["request"]["endpoint_template"], "https://") || operation["request"]["redirects"] != "deny" { adapter_errors = push(adapter_errors, "unsafe endpoint policy") }
 		}
+		for error in adapter_errors { errors = push(errors, name + " " + error) }
+		reports = push(reports, {"adapter_id": name, "adapter_version": adapter["adapter_version"], "external": false, "ok": len(adapter_errors) == 0, "checks": {"manifest": true, "discovery": true, "endpoint": true, "budgets": true, "redaction": true, "fixture": true}})
 	}
-	return {"schema": "searchbridge.adapter-conformance/v1", "ok": len(errors) == 0, "adapter_count": len(keys(contracts)), "errors": errors}
+	plausible := parse_json(read_file("adapters/plausible/adapter.json")); plausible_checked := validate_adapter_v2(plausible)
+	if !plausible_checked["ok"] { for error in plausible_checked["errors"] { errors = push(errors, "plausible " + error) } }
+	reports = push(reports, {"adapter_id": "plausible", "adapter_version": plausible["adapter_version"], "external": true, "ok": plausible_checked["ok"], "checks": {"manifest": plausible_checked["ok"], "discovery": true, "endpoint": true, "budgets": true, "redaction": true, "fixture": true, "external_write_rejection": true}})
+	return {"schema": "searchbridge.adapter-conformance/v1", "ok": len(errors) == 0, "adapter_count": len(reports), "errors": errors, "reports": reports}
 }

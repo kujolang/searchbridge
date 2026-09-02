@@ -1,12 +1,12 @@
 from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_probe
 from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode
-from src.transport import should_retry_status, retry_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport
+from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, read_protected_cached_response
 from src.adapters import validate_adapter, validate_adapter_v2, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter
 from src.commands import pagination_contract_probe
 from src.telemetry import otel_payload, validate_otel_privacy, export_otel
 from src.registry import adapters, validate_registry, providers_for, resolve, agent_catalog
-from src.protocols import cost_preflight, cursor_sequence, async_task_sequence, bounded_csv_parse, graphql_result
+from src.protocols import cost_preflight, cursor_sequence, async_task_sequence, bounded_csv_parse, graphql_result, validate_exact_endpoint, stream_synthetic_jsonl
 
 mut passed := 0
 mut failed := 0
@@ -47,7 +47,8 @@ for capability in caps["capabilities"] {
 }
 check(degraded, "missing credentials degrade individual capabilities")
 check(doctor["value"]["health"] == "degraded", "doctor exposes explicit degraded health")
-check(adapter_conformance_report()["ok"], "built-in adapter contracts conform")
+conformance := adapter_conformance_report()
+check(conformance["ok"] && conformance["adapter_count"] == 12 && len(conformance["reports"]) == 12, "built-in and external adapters pass one conformance report")
 registry := adapters()
 check(validate_registry(registry)["ok"] && len(keys(registry)) == 11, "canonical adapter v2 registry validates")
 check(providers_for("serp.results", false) == ["dataforseo", "serpapi"], "registry discovers providers in deterministic order")
@@ -58,6 +59,10 @@ check(auto_route["ok"] && auto_route["value"]["selected"] == ["serpapi"], "regis
 all_route := resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"])
 check(all_route["ok"] && all_route["value"]["selected"] == ["serpapi", "dataforseo"], "registry all routing preserves configured order")
 check(utf8_size(to_json(agent_catalog())) <= 4096, "agent catalog stays within the 4 KiB budget")
+agent_catalog_result := dispatch("agent-catalog", options_for("agent-catalog", ["--deterministic"]))
+check(agent_catalog_result["ok"] && json_schema_validate(agent_catalog_result["value"], runtime_schema("schemas/agent-catalog.schema.json"))["valid"], "agent-facing catalog is generated from registry metadata")
+agent_tools := parse_json(read_file("integrations/searchbridge-tools.json"))
+check(utf8_size(to_json(agent_tools)) <= 4096 && len(agent_tools["tools"]) == 4 && agent_tools["tools"][3]["input_schema"]["properties"]["act"]["const"], "agent tool surface is concise and preserves submission confirmation")
 for name in ["rank-tracking", "serp-results", "domain-visibility", "traffic-estimate", "edge-analytics", "crawl-data"] {
 	row := parse_json(read_file("examples/rows/" + name + ".json")); schema := runtime_schema("schemas/rows/" + name + ".schema.json")
 	check(json_schema_validate(row, schema)["valid"], name + " canonical example satisfies its row schema")
@@ -89,9 +94,14 @@ csv_ok := bounded_csv_parse("name;value\nx;=CMD()\n", 2, 4, 32)
 check(csv_ok["ok"] && !bounded_csv_parse("name;name\nx;y\n", 2, 4, 32)["ok"], "bounded CSV parser treats formulas as data and rejects duplicate headers")
 check(!graphql_result({"data": null, "errors": [{"message": "token=secret"}]})["ok"] && contains(graphql_result({"data": null, "errors": [{"message": "token=secret"}]})["error"], "secret") == 0, "GraphQL failures do not echo provider errors")
 check(!cost_preflight("metered", false, false, 1, 1)["ok"] && cost_preflight("metered", true, false, 0, 0)["ok"], "cost policy blocks paid live calls and exempts zero-call fixtures")
+stream_probe_path := "/tmp/searchbridge-stream-probe-" + to_string(current_timestamp()) + ".jsonl"; stream_probe := stream_synthetic_jsonl(stream_probe_path, 1000, 1048576)
+check(stream_probe["ok"] && stream_probe["value"]["retained_rows"] <= 1000 && stream_probe["value"]["atomic"] && len(read_lines(stream_probe_path)) == 1000, "large-result JSONL streaming retains one page and publishes atomically"); delete_file(stream_probe_path)
 fixture_contracts := parse_json(read_file("fixtures/provider-cases.json")); mut fixture_contracts_complete := true
 for operation_id in keys(fixture_contracts["operations"]) { for case_name in fixture_contracts["required_cases"] { if has_key(fixture_contracts["operations"][operation_id], case_name) == 0 { fixture_contracts_complete = false } } }
 check(fixture_contracts_complete, "every batch-1 operation declares the provider-neutral fixture minimum")
+check(validate_exact_endpoint("https://serpapi.com/search.json?q=x", "https://serpapi.com/search.json", true)["ok"] && !validate_exact_endpoint("https://serpapi.com.evil/search.json", "https://serpapi.com/search.json", true)["ok"] && !validate_exact_endpoint("https://127.0.0.1/data", "https://127.0.0.1/data", false)["ok"], "final endpoint validation is exact and denies private destinations")
+semrush_retention := dispatch("fetch", options_for("fetch", ["--capability", "domain.visibility", "--provider", "semrush", "--fixture", "--cache-dir", "/tmp/searchbridge-unused", "--cache-max-age", "2592001"]))
+check(!semrush_retention["ok"] && contains(semrush_retention["error"], "retention") == 1, "Semrush replay retention is capped at one month")
 
 # Every declared read adapter normalizes through a deterministic fixture.
 fixture_cases := [
@@ -206,6 +216,11 @@ check(should_retry_status(503) && !should_retry_status(400), "only transient sta
 check(!probe["failed"]["ok"], "transport retries are bounded")
 check(contains(probe["failed"]["error"], "super-secret") == 0, "transport errors are redacted")
 check(contains(clean_error("Authorization=secret-value"), "secret-value") == 0, "authorization values are redacted")
+check(contains(clean_error("Authorization: Basic c2VjcmV0OnBhc3N3b3Jk"), "c2VjcmV0") == 0 && contains(clean_error("{\"password\":\"secret-value\"}"), "secret-value") == 0, "Basic and JSON body credentials are redacted")
+body_hash_a := credential_independent_request_hash("POST", "https://example.com/?password=one", {"password": "one", "query": "safe"}); body_hash_b := credential_independent_request_hash("POST", "https://example.com/?password=two", {"password": "two", "query": "safe"})
+check(body_hash_a == body_hash_b, "query and body password credentials are absent from cache fingerprints")
+call_budget_probe := call_budget_contract_probe()
+check(!call_budget_probe["limited"]["ok"] && call_budget_probe["sufficient"]["ok"] && call_budget_probe["sufficient"]["value"]["telemetry"]["attempts"] == 2, "retry amplification is included in the call budget")
 check(query_encode("café & 東京/💡") == "caf%C3%A9%20%26%20%E6%9D%B1%E4%BA%AC%2F%F0%9F%92%A1", "RFC 3986 encoder handles UTF-8 and reserved characters")
 
 # Parser rejects ambiguous or invalid input.
@@ -215,6 +230,10 @@ check(!prepare_options("analytics", ["--offline"])["ok"], "offline mode requires
 check(!prepare_options("analytics", ["--replay"])["ok"], "replay requires an explicit cache directory")
 profile_options := prepare_options("analytics", ["--config", "config/searchbridge.example.toml", "--profile", "ci", "--fixture", "--max-pages", "7"])
 check(profile_options["ok"] && profile_options["value"]["max_total_rows"] == 1000 && profile_options["value"]["max_pages"] == 7, "configuration precedence is defaults then profile then explicit CLI")
+nested_config := prepare_options("fetch", ["--config", "config/searchbridge.example.toml", "--capability", "serp.results", "--provider", "auto", "--fixture"])
+check(nested_config["ok"] && nested_config["value"]["route_preferences"] == "serpapi,dataforseo" && nested_config["value"]["enabled_providers"] == "cloudflare,dataforseo,serpapi", "nested routing and provider enablement configuration is typed and deterministic")
+secret_config_path := "/tmp/searchbridge-secret-config-" + to_string(current_timestamp()) + ".toml"; write_file(secret_config_path, "[providers.serpapi]\nenabled = true\ncredential_token = \"must-not-load\"\n", true)
+check(!prepare_options("fetch", ["--config", secret_config_path, "--capability", "serp.results", "--provider", "serpapi", "--fixture"])["ok"], "nested configuration rejects credential-shaped keys at every depth"); delete_file(secret_config_path)
 check(!prepare_options("pagespeed", ["--strategy", "tablet"])["ok"], "invalid strategy is rejected")
 check(!dispatch("keyword-data", options_for("keyword-data", ["--fixture", "--country", "USA"]))["ok"], "invalid country codes are rejected")
 bad_dates := dispatch("search-performance", options_for("search-performance", ["--property", "sc-domain:example.com", "--start-date", "2026-13-01", "--end-date", "2026-13-02"]))

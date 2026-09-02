@@ -1,5 +1,6 @@
 from src.core import VERSION, RESULT_SCHEMA, SUBMISSION_SCHEMA, providers, includes, now_text, failure, success, fixture, envelope, capability_report, csv_values, take, query_encode, validate_submission_urls, normalize_submission_url, normalize_gsc, normalize_analytics, dict_get, utf8_size
 from src.transport import request_json
+from src.registry import agent_catalog
 
 func mode(options) { if options["fixture"] { return "fixture" }; return "live" }
 
@@ -326,6 +327,7 @@ export func static_command(command, deterministic) {
 		return success({"schema": "searchbridge.providers/v1", "providers": rows})
 	}
 	if command == "capabilities" { return success(capability_report(deterministic)) }
+	if command == "agent-catalog" { return success(agent_catalog()) }
 	if command == "doctor" {
 		report := capability_report(deterministic); mut live := []; mut unavailable := []
 		for item in report["capabilities"] { if item["available"] { live = push(live, item["capability"]) } else { unavailable = push(unavailable, item["capability"]) } }

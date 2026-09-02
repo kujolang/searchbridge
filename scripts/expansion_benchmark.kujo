@@ -1,0 +1,25 @@
+from src.registry import adapters, resolve, agent_catalog
+from src.protocols import bounded_csv_parse, cursor_sequence, async_task_sequence, stream_synthetic_jsonl
+from src.core import utf8_size
+
+mut row_count := 1000; argv := args(); if len(argv) == 2 && argv[0] == "--rows" { row_count = to_int(argv[1]) }
+if row_count < 1 || row_count > 100000 { eprint("--rows must be between 1 and 100000"); exit(2) }
+
+discovery_started := performance_now(); mut i := 0
+while i < 100 { adapters(); agent_catalog(); i = i + 1 }
+discovery_ms := performance_now() - discovery_started
+routing_started := performance_now(); i = 0
+while i < 100 { resolve("serp.results", "serpapi", [], []); resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"]); resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"]); i = i + 1 }
+routing_ms := performance_now() - routing_started
+
+mut csv := "keyword;volume\n"; i = 0
+while i < row_count { csv = csv + "keyword-" + to_string(i) + ";" + to_string(i) + "\n"; i = i + 1 }
+csv_started := performance_now(); csv_result := bounded_csv_parse(csv, row_count, 8, 256); mut csv_ms := performance_now() - csv_started; if csv_ms <= 0 { csv_ms = 0.001 }
+if !csv_result["ok"] { eprint(csv_result["error"]); exit(1) }
+
+cursor_sequence(["a", "b", "c"], 3); async_task_sequence([{"id": "task", "status": "pending", "elapsed_ms": 1}, {"id": "task", "status": "completed", "elapsed_ms": 1}], 2, 10)
+stream_path := "/tmp/searchbridge-expansion-benchmark-" + to_string(current_timestamp()) + ".jsonl"; stream_started := performance_now(); streamed := stream_synthetic_jsonl(stream_path, row_count, 16777216); stream_ms := performance_now() - stream_started
+if !streamed["ok"] { eprint(streamed["error"]); exit(1) }; delete_file(stream_path)
+
+catalog_bytes := utf8_size(to_json(agent_catalog())); registry_count := len(keys(adapters()))
+print(to_json({"schema": "searchbridge.expansion-benchmark/v1", "rows": row_count, "registry_adapters": registry_count, "discovery_100_ms": discovery_ms, "routing_300_ms": routing_ms, "csv_ms": csv_ms, "csv_rows_per_second": (row_count * 1000.0) / csv_ms, "stream_ms": stream_ms, "stream_retained_rows": streamed["value"]["retained_rows"], "stream_atomic": streamed["value"]["atomic"], "agent_catalog_bytes": catalog_bytes}))

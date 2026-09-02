@@ -1,10 +1,10 @@
 from src.core import dict_get, failure, success, clean_error
 
 export func credential_independent_request_hash(method, url, body) {
-	mut canonical_url := regex_replace(url, "(?i)([^?&=]*(token|key|secret|credential)[^?&=]*)=([^&]+)", "$1=[REDACTED]")
+	mut canonical_url := regex_replace(url, "(?i)([^?&=]*(token|key|secret|credential|password|authorization)[^?&=]*)=([^&]+)", "$1=[REDACTED]")
 	mut canonical_body := ""
 	if type(body) != "null" {
-		canonical_body = regex_replace(to_json(body), "(?i)\"([^\"]*(token|key|secret|credential|authorization)[^\"]*)\":\"[^\"]+\"", "\"$1\":\"[REDACTED]\"")
+		canonical_body = regex_replace(to_json(body), "(?i)\"([^\"]*(token|key|secret|credential|password|authorization)[^\"]*)\":\"[^\"]+\"", "\"$1\":\"[REDACTED]\"")
 	}
 	return sha256(to_upper(method) + "\n" + canonical_url + "\n" + canonical_body)
 }

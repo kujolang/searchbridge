@@ -4,6 +4,8 @@ func operation(id, capability, command, method, endpoint, pagination, rows, quer
 	return {"id": id, "capability": capability, "class": "read", "compatibility_command": command, "request": {"method": method, "endpoint_template": endpoint, "allowed_query_fields": query_fields, "redirects": "deny"}, "response": {"format": "json", "rows_pointer": rows, "max_bytes": 8388608}, "pagination": {"strategy": pagination}, "normalization": {"row_contract": capability + "/v1", "unknown_fields": "discard"}}
 }
 
+func write_operation(id, endpoint) { return {"id": id, "capability": "index.submission", "class": "write", "compatibility_command": "submit", "request": {"method": "POST", "endpoint_template": endpoint, "allowed_query_fields": ["urls"], "redirects": "deny"}, "response": {"format": "json", "rows_pointer": "/", "max_bytes": 8388608}, "pagination": {"strategy": "none"}, "normalization": {"row_contract": "index.submission/v1", "unknown_fields": "discard"}} }
+
 func adapter(id, version, api_version, capabilities, env_required, env_any, env_optional, write_capabilities, cost_class, pagination, rows, endpoint, method, operations, enabled, retention_seconds) {
 	return {
 		"contract": "searchbridge-adapter/v2", "id": id, "adapter_version": version, "provider_api_version": api_version,
@@ -24,10 +26,11 @@ export func adapters() {
 		"google-analytics-4": adapter("google-analytics-4", "2.0.0", "v1beta", ["analytics"], ["SEARCHBRIDGE_GA4_TOKEN"], [], [], [], "quota", "offset/limit", "rows[]", "https://analyticsdata.googleapis.com/v1beta/{property}:runReport", "POST", [operation("run-report", "analytics", "analytics", "POST", "https://analyticsdata.googleapis.com/v1beta/{property}:runReport", "offset-limit", "/rows", ["property", "start_date", "end_date", "dimensions", "metrics"])], true, 86400),
 		"pagespeed-insights": adapter("pagespeed-insights", "2.0.0", "v5", ["page.performance"], [], [], ["SEARCHBRIDGE_PAGESPEED_KEY"], [], "quota", "none", "single", "https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed", "GET", [operation("run-pagespeed", "page.performance", "pagespeed", "GET", "https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed", "none", "/", ["url", "strategy"])], true, 86400),
 		"crux": adapter("crux", "2.0.0", "v1", ["field.performance"], ["SEARCHBRIDGE_CRUX_KEY"], [], [], [], "quota", "none", "single", "https://chromeuxreport.googleapis.com/v1/records:queryRecord", "POST", [operation("query-record", "field.performance", "crux", "POST", "https://chromeuxreport.googleapis.com/v1/records:queryRecord", "none", "/record", ["url", "form_factor"])], true, 86400),
-		"indexnow": adapter("indexnow", "2.0.0", "v1", ["index.submission"], ["SEARCHBRIDGE_INDEXNOW_KEY"], [], [], ["index.submission"], "quota", "none", "receipt", "https://api.indexnow.org/indexnow", "POST", [], true, 0),
+		"indexnow": adapter("indexnow", "2.0.0", "v1", ["index.submission"], ["SEARCHBRIDGE_INDEXNOW_KEY"], [], [], ["index.submission"], "quota", "none", "receipt", "https://api.indexnow.org/indexnow", "POST", [write_operation("submit-urls", "https://api.indexnow.org/indexnow")], true, 0),
 		"bing-webmaster": adapter("bing-webmaster", "2.0.0", "v1", ["search.performance", "backlinks", "index.submission"], [], ["SEARCHBRIDGE_BING_KEY", "SEARCHBRIDGE_BING_TOKEN"], [], ["index.submission"], "quota", "provider-list-window", "d[]", "https://www.bing.com/webmaster/api.svc/json/{method}", "GET/POST", [
 			operation("query-stats", "search.performance", "search-performance", "GET", "https://www.bing.com/webmaster/api.svc/json/GetQueryStats", "provider-list-window", "/d", ["property"]),
 			operation("link-details", "backlinks", "backlinks", "GET", "https://www.bing.com/webmaster/api.svc/json/GetLinkDetails", "provider-list-window", "/d", ["target"])
+			,write_operation("submit-url", "https://www.bing.com/webmaster/api.svc/json/SubmitUrl")
 		], true, 86400),
 		"ahrefs": adapter("ahrefs", "2.0.0", "v3", ["backlinks", "keyword.data"], ["SEARCHBRIDGE_AHREFS_TOKEN"], [], [], [], "metered", "provider-list-window", "rows[]", "https://api.ahrefs.com/v3/{service}/{operation}", "GET", [
 			operation("all-backlinks", "backlinks", "backlinks", "GET", "https://api.ahrefs.com/v3/site-explorer/all-backlinks", "provider-list-window", "/backlinks", ["target"]),

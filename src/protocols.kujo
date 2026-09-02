@@ -1,5 +1,14 @@
 from src.core import failure, success, clean_error, utf8_size, dict_get, includes
 
+export func validate_exact_endpoint(url, template, allow_query) {
+	if !starts_with(url, "https://") || contains(url, "@") || contains(url, "#") { return failure("provider endpoint must be safe HTTPS without user-info or fragments") }
+	lowered := to_lower(url)
+	for denied in ["https://localhost", "https://127.", "https://10.", "https://192.168.", "https://169.254.", "https://[::1]", "https://0.0.0.0"] { if starts_with(lowered, denied) { return failure("provider endpoint resolves to a denied destination") } }
+	if url == template { return success(url) }
+	if allow_query && starts_with(url, template + "?") { return success(url) }
+	return failure("provider endpoint does not match its exact approved template")
+}
+
 export func cost_preflight(cost_class, fixture_mode, allow_paid, max_calls, max_units) {
 	if fixture_mode { return success({"estimated_calls": 0, "estimated_provider_units": 0}) }
 	if includes(["metered", "expensive", "unknown"], cost_class) && (!allow_paid || max_calls < 1 || max_units <= 0) { return failure("paid or unknown live provider requires --allow-paid, --max-calls, and --max-provider-units") }
@@ -34,21 +43,25 @@ export func async_task_sequence(states, max_polls, max_elapsed_ms) {
 export func bounded_csv_parse(text, max_rows, max_columns, max_cell_bytes) {
 	if utf8_size(text) > 8388608 { return failure("CSV response exceeded 8 MiB") }
 	first_line := split(text, "\n")[0]; mut delimiter := ","; if contains(first_line, ";") > contains(first_line, ",") { delimiter = ";" }
-	mut normalized := ""; mut quoted := false; mut i := 0; mut header_columns := 1; mut in_header := true
-	while i < count_chars(text) {
-		character := char_at(text, i)
-		if character == "\"" {
-			if quoted && i + 1 < count_chars(text) && char_at(text, i + 1) == "\"" { normalized = normalized + "\"\""; i = i + 2; continue }
-			quoted = !quoted; normalized = normalized + character
-		} else if character == delimiter && !quoted { normalized = normalized + ","; if in_header { header_columns = header_columns + 1 } }
-		else { normalized = normalized + character; if character == "\n" && !quoted { in_header = false } }
-		i = i + 1
+	mut normalized := text; mut header_columns := len(split(first_line, delimiter))
+	if delimiter == ";" && contains(text, "\"") == 0 { normalized = replace(text, ";", ",") }
+	else if delimiter == ";" {
+		normalized = ""; mut quoted := false; mut i := 0; header_columns = 1; mut in_header := true
+		while i < count_chars(text) {
+			character := char_at(text, i)
+			if character == "\"" {
+				if quoted && i + 1 < count_chars(text) && char_at(text, i + 1) == "\"" { normalized = normalized + "\"\""; i = i + 2; continue }
+				quoted = !quoted; normalized = normalized + character
+			} else if character == ";" && !quoted { normalized = normalized + ","; if in_header { header_columns = header_columns + 1 } }
+			else { normalized = normalized + character; if character == "\n" && !quoted { in_header = false } }
+			i = i + 1
+		}
 	}
 	if header_columns > max_columns { return failure("CSV column budget exceeded") }
 	try {
 		rows := parse_csv(normalized); if len(rows) > max_rows { return failure("CSV row budget exceeded") }
 		if len(rows) > 0 && len(keys(rows[0])) != header_columns { return failure("CSV contains duplicate or empty headers") }
-		for row in rows { for key in keys(row) { if utf8_size(to_string(row[key])) > max_cell_bytes { return failure("CSV cell budget exceeded") } } }
+		for row in rows { for key in keys(row) { cell := to_string(row[key]); if len(cell) > max_cell_bytes / 4 && utf8_size(cell) > max_cell_bytes { return failure("CSV cell budget exceeded") } } }
 		return success(rows)
 	} except csv_error { return failure("provider returned invalid CSV: " + clean_error(csv_error)) }
 }
@@ -58,4 +71,18 @@ export func graphql_result(payload) {
 	if len(dict_get(payload, "errors", [])) > 0 { return failure("provider GraphQL operation failed") }
 	if type(dict_get(payload, "data", null)) != "dict" { return failure("provider GraphQL response omitted data") }
 	return success(payload["data"])
+}
+
+export func stream_synthetic_jsonl(output_path, total_rows, max_bytes) {
+	if total_rows < 0 || total_rows > 100000 { return failure("synthetic streaming row budget exceeded") }
+	temporary := output_path + ".searchbridge-tmp-" + to_string(current_timestamp()); write_file(temporary, "", true); mut bytes := 0; mut row := 0; mut page := ""; page_size := 1000
+	while row < total_rows {
+		line := to_json({"schema": "searchbridge.row/v1", "row": {"id": row}}) + "\n"; bytes = bytes + utf8_size(line)
+		if bytes > max_bytes { delete_file(temporary); return failure("synthetic streaming byte budget exceeded") }
+		page = page + line; row = row + 1
+		if row % page_size == 0 || row == total_rows { append_file(temporary, page); page = "" }
+	}
+	try { if file_exists(output_path) { delete_file(output_path) }; rename_file(temporary, output_path) }
+	except publish_error { if file_exists(temporary) { delete_file(temporary) }; return failure("could not publish synthetic stream") }
+	return success({"rows": total_rows, "bytes": bytes, "retained_rows": page_size, "atomic": true})
 }

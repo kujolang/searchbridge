@@ -13,10 +13,13 @@ SearchBridge is a provider gateway, not a credential broker or sandbox.
 - Retry telemetry excludes URLs, headers, bodies, credentials, and row values.
 - Config files reject secret-, token-, credential-, and key-shaped fields; credentials remain environment-only.
 - Replay hashes redact credential material. Operators may require authenticated AES-256-GCM records using an environment-provided key and may allowlist replayable capabilities. Expired records are deleted and tampered ciphertext fails closed.
-- External adapters are declarative read contracts loaded only from detached RSA-SHA256-signed manifests. Every external capability, exact endpoint, and credential environment variable requires an invocation allowlist; mutation access remains unavailable.
+- External adapters are declarative read contracts loaded only from detached RSA-SHA256-signed canonical manifests. The manifest binds every package file digest. Every external capability, exact endpoint template, and credential environment variable requires an invocation allowlist; mutation access remains unavailable.
 - OpenTelemetry is explicit opt-in. OTLP trace and metric payloads contain bounded operational attributes only and exclude URLs, headers, tokens, bodies, and normalized rows. A committed redaction corpus exercises this boundary.
 - Batch cancellation is cooperative: new work and retries stop when the cancel file appears, while a currently executing provider request remains bounded by its timeout.
-- Ahrefs calls may consume paid provider units. Live output labels its cost class; fixture mode never consumes provider quota.
+- Metered, expensive, and unknown live calls require explicit paid enablement plus call and provider-unit budgets before credentials or transport. Estimated and actual provider units remain separate. Fixture mode never consumes provider quota.
+- Fixed final endpoints reject user-info, fragments, private/local destinations, prefix lookalikes, and redirects. Cloudflare accepts variables for one reviewed GraphQL operation, never operator-supplied GraphQL.
+- Basic, bearer, header, query, and body credential shapes are removed from errors, request fingerprints, cache keys, and telemetry. Evidence rows remain intact and are never copied into telemetry.
+- Cursor repetition, async task IDs, polling time, retry amplification, CSV size/columns/cells, provider response bytes, and cache retention are bounded. Semrush cache/replay age cannot exceed one month.
 - SearchBridge does not refresh OAuth tokens, open browsers, store credentials, or claim that an accepted URL was indexed.
 
 Provider properties, URLs, query rows, and analytics measurements may be

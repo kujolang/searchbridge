@@ -11,7 +11,7 @@ func bool_flags() { return ["fixture", "offline", "replay", "deterministic", "ac
 func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field"] }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
-func commands() { return ["doctor", "capabilities", "providers", "version", "adapter-conformance", "adapter-run", "evidence-query", "batch", "fetch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
+func commands() { return ["doctor", "capabilities", "providers", "agent-catalog", "version", "adapter-conformance", "adapter-run", "evidence-query", "batch", "fetch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
 
 func default_options() {
 	return {
@@ -145,9 +145,9 @@ export func dispatch(command, options) {
 	if command == "evidence-query" { return query_evidence(options) }
 	if command == "batch" { return command_batch(options) }
 	if command == "fetch" { return command_fetch(options) }
-	if includes(["doctor", "capabilities", "providers", "version"], command) { return static_command(command, options["deterministic"]) }
+	if includes(["doctor", "capabilities", "providers", "agent-catalog", "version"], command) { return static_command(command, options["deterministic"]) }
 	options["current_capability"] := command_capability(command)
-	if options["current_capability"] != "" && command != "submit" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered } }
+	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered } }
 	if command == "search-performance" { return command_search_performance(options) }
 	if command == "analytics" { return command_analytics(options) }
 	if command == "inspect-url" { return command_inspect(options) }
@@ -239,11 +239,12 @@ export func render_output(value, options) {
 			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "row": row}) + "\n"
 			total = total + utf8_size(line); if total > options["max_output_bytes"] || total > options["max_output_tokens"] * 4 { return failure("output budget exceeded (" + to_string(total) + " bytes)") }
 		}
-		if options["out"] != "" { write_file(options["out"], "", true) }
+		mut output_path := options["out"]; if output_path != "" { output_path = options["out"] + ".searchbridge-tmp-" + to_string(current_timestamp()); write_file(output_path, "", true) }
 		for row in value["rows"] {
 			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "row": row}) + "\n"
-			if options["out"] != "" { append_file(options["out"], line) } else { print(trim_end(line)) }
+			if options["out"] != "" { append_file(output_path, line) } else { print(trim_end(line)) }
 		}
+		if options["out"] != "" { try { if file_exists(options["out"]) { delete_file(options["out"]) }; rename_file(output_path, options["out"]) } except publish_error { if file_exists(output_path) { delete_file(output_path) }; return failure("could not publish output atomically") } }
 		return {"ok": true, "value": "", "streamed": true}
 	}
 	text := to_json(value) + "\n"
@@ -261,7 +262,7 @@ func print_help() {
 	print("")
 	print("Usage: ./searchbridge <command> [options]")
 	print("")
-	print("Commands: doctor, capabilities, providers, version, search-performance,")
+	print("Commands: doctor, capabilities, providers, agent-catalog, version, search-performance,")
 	print("          fetch, analytics, inspect-url, pagespeed, crux, backlinks, keyword-data, batch, submit,")
 	print("          adapter-conformance, adapter-run, evidence-query")
 	print("")

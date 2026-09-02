@@ -40,6 +40,8 @@ ecosystem development, or `kujo` from `PATH`.
 ./searchbridge doctor
 ./searchbridge capabilities --deterministic
 ./searchbridge providers
+./searchbridge agent-catalog
+./searchbridge fetch --capability serp.results --provider serpapi --fixture --offline
 ./searchbridge search-performance --fixture
 ./searchbridge analytics --fixture
 ./searchbridge inspect-url --fixture
@@ -237,6 +239,8 @@ commit. Separate jobs cover Linux, macOS, Windows, scheduled low-privilege live
 reads, provider drift issue creation, and signed-tag release artifacts.
 
 See [security boundaries](docs/security.md), the [output contract](docs/output-contract.md),
+[providers and capabilities](docs/providers-and-capabilities.md), [routing and cost](docs/routing-and-cost.md),
+[adapter authoring](docs/adapter-authoring.md), [agent and MCP integration](docs/agent-mcp.md),
 [provider research](docs/provider-research.md), the [0.2.4 qualification](docs/release-qualification-0.2.4.md),
 the [reproducible release checklist](docs/release-checklist-0.2.x.md), and the
 [next-session backlog](docs/next-session-review-0.3.md).

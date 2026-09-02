@@ -58,7 +58,13 @@ export func request_json(url, method, body, headers, policy, transport) {
 	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30)}
 	if type(body) != "null" { request_options["body"] := to_json(body) }
 	mut call_transport := transport; if type(call_transport) == "null" { call_transport = default_transport }
-	mut attempt := 0; max_attempts := dict_get(policy, "retries", 2) + 1; mut last_error := "provider request failed"; mut total_delay := 0; started := current_timestamp()
+	mut attempt := 0
+	mut max_attempts := dict_get(policy, "retries", 2) + 1
+	call_budget := dict_get(policy, "max_calls", 0)
+	if call_budget > 0 && max_attempts > call_budget { max_attempts = call_budget }
+	mut last_error := "provider request failed"
+	mut total_delay := 0
+	started := current_timestamp()
 	while attempt < max_attempts {
 		cancel_file := dict_get(policy, "cancel_file", ""); if cancel_file != "" && file_exists(cancel_file) { return failure("provider request cancelled") }
 		request_options["_attempt"] = attempt
@@ -97,6 +103,13 @@ export func retry_contract_probe() {
 	capped_transport := func(_url, _options) { return Err("token=super-secret timeout") }
 	failed := request_json("https://example.invalid", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 1, "user_agent": "test", "deterministic": true}, capped_transport)
 	return {"retried": retried, "failed": failed}
+}
+
+export func call_budget_contract_probe() {
+	budget_transport := func(_url, request_options) { if request_options["_attempt"] == 0 { return Ok({"_status": 503, "_body": "{}"}) }; return Ok({"_status": 200, "_body": "{}"}) }
+	limited := request_json("https://example.invalid", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 5, "max_calls": 1, "deterministic": true}, budget_transport)
+	sufficient := request_json("https://example.invalid", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 5, "max_calls": 2, "deterministic": true}, budget_transport)
+	return {"limited": limited, "sufficient": sufficient}
 }
 
 export func gsc_page_contract_transport(_url, request_options) {

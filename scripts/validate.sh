@@ -7,7 +7,7 @@ if [[ ! -x "$KUJO_RUNTIME" ]]; then printf 'SearchBridge: Kujo runtime not found
 cd "$ROOT"
 "$KUJO_RUNTIME" check searchbridge.kujo
 "$KUJO_RUNTIME" run tests/searchbridge_tests.kujo
-while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$document"; done < <(find schemas fixtures/providers fixtures/golden examples/rows -type f -name '*.json' -print | sort)
+while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$document"; done < <(find schemas fixtures/providers fixtures/golden examples/rows integrations adapters -type f -name '*.json' -print | sort)
 while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$document"; done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
 "$KUJO_RUNTIME" run scripts/validate_document.kujo -- kujo.toml
 "$KUJO_RUNTIME" run scripts/compatibility_gate.kujo
@@ -15,6 +15,7 @@ while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.ku
 "$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo
 "$KUJO_RUNTIME" run scripts/sdk_compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null
+"$KUJO_RUNTIME" run scripts/expansion_benchmark.kujo -- --rows 1000 >/dev/null
 version_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version)"
 fixture_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic)"
 if [[ -z "$version_output" || -z "$fixture_output" ]]; then
