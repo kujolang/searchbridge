@@ -9,6 +9,8 @@ installation after extraction.
 `macos-arm64`, or `windows-x64` and requires `KUJO_BIN` plus the pinned
 `KUJO_COMMIT`. It normalizes timestamps and archive ordering, writes an embedded
 manifest binding both source and runtime, and creates an adjacent SHA-256 file.
+The checksum names only the archive basename, so it remains verifiable after
+download or relocation to any directory.
 
 The platform workflow builds each runtime from the pinned Kujo commit, creates
 the bundle twice, requires byte-identical hashes, extracts it into a clean

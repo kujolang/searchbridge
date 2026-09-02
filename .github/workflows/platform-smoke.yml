@@ -63,6 +63,7 @@ jobs:
           archive="$(bash scripts/build_runtime_bundle.sh "$platform")"
           second="$(shasum -a 256 "$archive" | awk '{print $1}')"
           test "$first" = "$second"
+          (cd "$(dirname "$archive")" && shasum -a 256 -c "$(basename "$archive").sha256")
           echo "BUNDLE_PATH=${archive#$PWD/}" >> "$GITHUB_ENV"
       - name: Offline POSIX bundle smoke
         if: runner.os != 'Windows'

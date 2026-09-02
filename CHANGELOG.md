@@ -36,6 +36,7 @@
 - Made the HTTP fault server accept proxy-style absolute request targets and supplied the pinned runtime to the standalone Go SDK example gate.
 - Isolated loopback fault qualification from runner proxy settings and made any redirect-policy failure diagnostic.
 - Advanced every active CI, monitoring, live, bundle, and release pin to the exact Kujo runtime that enforces SearchBridge's network and filesystem policies.
+- Made runtime checksum sidecars portable after download and required CI to verify them from the artifact directory.
 
 ## 0.3.0 — 2026-08-12
 

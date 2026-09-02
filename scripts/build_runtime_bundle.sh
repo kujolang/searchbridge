@@ -28,6 +28,9 @@ find "$STAGE" -exec touch -t 202601010000 {} +
 )
 gzip -n -c "$ARCHIVE.tmp" > "$ARCHIVE"
 rm "$ARCHIVE.tmp"
-shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+(
+  cd "$OUTPUT"
+  shasum -a 256 "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256"
+)
 rm -rf "$WORK"
 printf '%s\n' "$ARCHIVE"
