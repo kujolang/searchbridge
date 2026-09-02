@@ -1,6 +1,6 @@
 # SearchBridge 0.4.0 release qualification
 
-Qualified on 2026-09-02 against implementation commit `457819733069c61743e3038de1743fefd930a466` and Kujo runtime commit `3bc5b4f1634d9883a789a0c2a0e6a266f72b77b2`. The reference host was macOS Darwin 25.3.0, Intel Core i7-9750H, 16 GiB RAM, with `kujo 1.2.3`.
+Qualification is being refreshed on 2026-09-02 against the SearchBridge 0.4 release-candidate series and Kujo runtime commit `67e880a9688dd5770d4a67311d45aa551e6a6fd6`. The reference host is macOS Darwin 25.3.0, Intel Core i7-9750H, 16 GiB RAM, with `kujo 1.2.3`.
 
 ## Verification record
 
