@@ -1,0 +1,118 @@
+# Canonical adapter v2 registry. Discovery and routing must project from this table.
+
+func operation(id, capability, command, method, endpoint, pagination, rows, query_fields) {
+	return {"id": id, "capability": capability, "class": "read", "compatibility_command": command, "request": {"method": method, "endpoint_template": endpoint, "allowed_query_fields": query_fields, "redirects": "deny"}, "response": {"format": "json", "rows_pointer": rows, "max_bytes": 8388608}, "pagination": {"strategy": pagination}, "normalization": {"row_contract": capability + "/v1", "unknown_fields": "discard"}}
+}
+
+func adapter(id, version, api_version, capabilities, env_required, env_any, env_optional, write_capabilities, cost_class, pagination, rows, endpoint, method, operations, enabled, retention_seconds) {
+	return {
+		"contract": "searchbridge-adapter/v2", "id": id, "adapter_version": version, "provider_api_version": api_version,
+		"minimum_searchbridge_version": "0.4.0", "capabilities": capabilities, "env": env_required, "env_any": env_any,
+		"optional_env": env_optional, "write_capabilities": write_capabilities, "cost_class": cost_class,
+		"request_contract": {"pagination": pagination, "endpoint_template": endpoint, "method": method},
+		"response_contract": {"rows": rows}, "operations": operations, "enabled": enabled,
+		"retention": {"max_cache_age_seconds": retention_seconds}, "streaming": "page-jsonl"
+	}
+}
+
+export func adapters() {
+	return {
+		"google-search-console": adapter("google-search-console", "2.0.0", "v1", ["search.performance", "url.inspection"], ["SEARCHBRIDGE_GSC_TOKEN"], [], [], [], "quota", "startRow/rowLimit", "rows[]", "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", "POST", [
+			operation("search-analytics", "search.performance", "search-performance", "POST", "https://www.googleapis.com/webmasters/v3/sites/{property}/searchAnalytics/query", "page-size", "/rows", ["property", "start_date", "end_date", "dimensions"]),
+			operation("inspect-url", "url.inspection", "inspect-url", "POST", "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", "none", "/inspectionResult", ["property", "url"])
+		], true, 86400),
+		"google-analytics-4": adapter("google-analytics-4", "2.0.0", "v1beta", ["analytics"], ["SEARCHBRIDGE_GA4_TOKEN"], [], [], [], "quota", "offset/limit", "rows[]", "https://analyticsdata.googleapis.com/v1beta/{property}:runReport", "POST", [operation("run-report", "analytics", "analytics", "POST", "https://analyticsdata.googleapis.com/v1beta/{property}:runReport", "offset-limit", "/rows", ["property", "start_date", "end_date", "dimensions", "metrics"])], true, 86400),
+		"pagespeed-insights": adapter("pagespeed-insights", "2.0.0", "v5", ["page.performance"], [], [], ["SEARCHBRIDGE_PAGESPEED_KEY"], [], "quota", "none", "single", "https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed", "GET", [operation("run-pagespeed", "page.performance", "pagespeed", "GET", "https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed", "none", "/", ["url", "strategy"])], true, 86400),
+		"crux": adapter("crux", "2.0.0", "v1", ["field.performance"], ["SEARCHBRIDGE_CRUX_KEY"], [], [], [], "quota", "none", "single", "https://chromeuxreport.googleapis.com/v1/records:queryRecord", "POST", [operation("query-record", "field.performance", "crux", "POST", "https://chromeuxreport.googleapis.com/v1/records:queryRecord", "none", "/record", ["url", "form_factor"])], true, 86400),
+		"indexnow": adapter("indexnow", "2.0.0", "v1", ["index.submission"], ["SEARCHBRIDGE_INDEXNOW_KEY"], [], [], ["index.submission"], "quota", "none", "receipt", "https://api.indexnow.org/indexnow", "POST", [], true, 0),
+		"bing-webmaster": adapter("bing-webmaster", "2.0.0", "v1", ["search.performance", "backlinks", "index.submission"], [], ["SEARCHBRIDGE_BING_KEY", "SEARCHBRIDGE_BING_TOKEN"], [], ["index.submission"], "quota", "provider-list-window", "d[]", "https://www.bing.com/webmaster/api.svc/json/{method}", "GET/POST", [
+			operation("query-stats", "search.performance", "search-performance", "GET", "https://www.bing.com/webmaster/api.svc/json/GetQueryStats", "provider-list-window", "/d", ["property"]),
+			operation("link-details", "backlinks", "backlinks", "GET", "https://www.bing.com/webmaster/api.svc/json/GetLinkDetails", "provider-list-window", "/d", ["target"])
+		], true, 86400),
+		"ahrefs": adapter("ahrefs", "2.0.0", "v3", ["backlinks", "keyword.data"], ["SEARCHBRIDGE_AHREFS_TOKEN"], [], [], [], "metered", "provider-list-window", "rows[]", "https://api.ahrefs.com/v3/{service}/{operation}", "GET", [
+			operation("all-backlinks", "backlinks", "backlinks", "GET", "https://api.ahrefs.com/v3/site-explorer/all-backlinks", "provider-list-window", "/backlinks", ["target"]),
+			operation("keyword-overview", "keyword.data", "keyword-data", "GET", "https://api.ahrefs.com/v3/keywords-explorer/overview", "provider-list-window", "/keywords", ["keyword", "country"])
+		], true, 86400),
+		"dataforseo": adapter("dataforseo", "1.0.0", "v3", ["serp.results", "keyword.data", "rank.tracking"], ["SEARCHBRIDGE_DATAFORSEO_LOGIN", "SEARCHBRIDGE_DATAFORSEO_PASSWORD"], [], [], [], "metered", "async-task", "tasks[].result[].items[]", "https://api.dataforseo.com/v3/serp/google/organic/{strategy}", "POST", [
+			operation("google-organic-live", "serp.results", "fetch", "POST", "https://api.dataforseo.com/v3/serp/google/organic/live/advanced", "none", "/tasks/0/result/0/items", ["keyword", "location", "language", "device"]),
+			operation("google-organic-standard", "rank.tracking", "fetch", "POST", "https://api.dataforseo.com/v3/serp/google/organic/task_post", "async-task", "/tasks/0/result/0/items", ["keyword", "location", "language", "device"]),
+			operation("keyword-search-volume", "keyword.data", "fetch", "POST", "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live", "none", "/tasks/0/result/0", ["keyword", "location", "language"])
+		], true, 86400),
+		"serpapi": adapter("serpapi", "1.0.0", "current", ["serp.results"], ["SEARCHBRIDGE_SERPAPI_KEY"], [], [], [], "metered", "page-size", "organic_results[]", "https://serpapi.com/search.json", "GET", [operation("google-organic", "serp.results", "fetch", "GET", "https://serpapi.com/search.json", "page-size", "/organic_results", ["keyword", "location", "language", "device"])], true, 86400),
+		"cloudflare": adapter("cloudflare", "1.0.0", "graphql", ["edge.analytics"], ["SEARCHBRIDGE_CLOUDFLARE_TOKEN", "SEARCHBRIDGE_CLOUDFLARE_ZONE_ID"], [], [], [], "quota", "cursor", "data.viewer.zones[].httpRequests1dGroups[]", "https://api.cloudflare.com/client/v4/graphql", "POST", [operation("http-requests", "edge.analytics", "fetch", "POST", "https://api.cloudflare.com/client/v4/graphql", "cursor", "/data/viewer/zones/0/httpRequests1dGroups", ["start_date", "end_date", "dimensions", "metrics"])], true, 86400),
+		"semrush": adapter("semrush", "1.0.0", "v3-v4", ["domain.visibility", "rank.tracking", "keyword.data", "backlinks", "traffic.estimate"], ["SEARCHBRIDGE_SEMRUSH_KEY"], [], [], [], "expensive", "provider-list-window", "csv/json rows", "https://api.semrush.com/", "GET", [
+			operation("domain-organic", "domain.visibility", "fetch", "GET", "https://api.semrush.com/", "provider-list-window", "/csv", ["target", "country"]),
+			operation("ranked-keywords", "rank.tracking", "fetch", "GET", "https://api.semrush.com/", "provider-list-window", "/csv", ["target", "country"]),
+			operation("keyword-overview", "keyword.data", "fetch", "GET", "https://api.semrush.com/", "provider-list-window", "/csv", ["keyword", "country"]),
+			operation("backlinks", "backlinks", "fetch", "GET", "https://api.semrush.com/analytics/v1/", "provider-list-window", "/data", ["target"]),
+			operation("traffic-summary", "traffic.estimate", "fetch", "GET", "https://api.semrush.com/analytics/ta/api/v3/summary", "none", "/data", ["target", "country"])
+		], false, 2592000)
+	}
+}
+
+export func provider_catalog() {
+	registry := adapters(); mut catalog := {}
+	for id in keys(registry) {
+		a := registry[id]
+		catalog[id] := {"capabilities": a["capabilities"], "env": a["env"], "env_any": a["env_any"], "optional_env": a["optional_env"], "write_capabilities": a["write_capabilities"], "cost_class": a["cost_class"], "request_contract": a["request_contract"], "response_contract": a["response_contract"], "adapter_version": a["adapter_version"], "provider_api_version": a["provider_api_version"], "enabled": a["enabled"], "retention": a["retention"]}
+	}
+	return catalog
+}
+
+func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
+
+export func operation_for(provider, capability) {
+	registry := adapters()
+	if has_key(registry, provider) == 0 { return {"ok": false, "error": "provider is not registered: " + provider} }
+	for item in registry[provider]["operations"] { if item["capability"] == capability { return {"ok": true, "value": item} } }
+	return {"ok": false, "error": "provider does not implement capability: " + capability}
+}
+
+export func providers_for(capability, include_disabled) {
+	registry := adapters(); mut output := []
+	for id in sort(keys(registry)) { if includes(registry[id]["capabilities"], capability) && (include_disabled || registry[id]["enabled"]) { output = push(output, id) } }
+	return output
+}
+
+export func validate_registry(candidate) {
+	if type(candidate) != "dict" { return {"ok": false, "errors": ["registry must be a dictionary"]} }
+	mut errors := []
+	for id in keys(candidate) {
+		a := candidate[id]
+		if a["id"] != id { errors = push(errors, id + " identifier mismatch") }
+		if a["contract"] != "searchbridge-adapter/v2" { errors = push(errors, id + " unsupported contract") }
+		mut operation_ids := []
+		for op in a["operations"] {
+			if includes(operation_ids, op["id"]) { errors = push(errors, id + " duplicate operation " + op["id"]) }
+			operation_ids = push(operation_ids, op["id"])
+			if !includes(a["capabilities"], op["capability"]) { errors = push(errors, id + " operation capability is undeclared") }
+		}
+	}
+	return {"ok": len(errors) == 0, "errors": errors}
+}
+
+export func resolve(capability, requested_provider, preferences, enabled_providers) {
+	mut candidates := providers_for(capability, false); mut considered := []
+	if requested_provider != "auto" && requested_provider != "all" {
+		op := operation_for(requested_provider, capability)
+		if !op["ok"] { return {"ok": false, "error": op["error"]} }
+		if len(enabled_providers) > 0 && !includes(enabled_providers, requested_provider) { return {"ok": false, "error": "provider is not enabled: " + requested_provider} }
+		return {"ok": true, "value": {"mode": "explicit", "selected": [requested_provider], "candidates": [{"provider": requested_provider, "accepted": true, "reason": "explicit request"}]}}
+	}
+	mut ordered := candidates
+	if len(preferences) > 0 { ordered = []; for id in preferences { if includes(candidates, id) { ordered = push(ordered, id) } } }
+	for id in ordered {
+		accepted := len(enabled_providers) == 0 || includes(enabled_providers, id); mut reason := "not enabled"
+		if accepted { reason = "configured and capable" }
+		considered = push(considered, {"provider": id, "accepted": accepted, "reason": reason})
+	}
+	mut selected := []; for item in considered { if item["accepted"] { selected = push(selected, item["provider"]); if requested_provider == "auto" { break } } }
+	if len(selected) == 0 { return {"ok": false, "error": "no configured enabled provider implements capability"} }
+	return {"ok": true, "value": {"mode": requested_provider, "selected": selected, "candidates": considered}}
+}
+
+export func agent_catalog() {
+	registry := adapters(); mut rows := []
+	for id in sort(keys(registry)) { a := registry[id]; rows = push(rows, {"id": id, "capabilities": a["capabilities"], "cost": a["cost_class"], "enabled": a["enabled"]}) }
+	return {"schema": "searchbridge.agent-catalog/v1", "providers": rows}
+}

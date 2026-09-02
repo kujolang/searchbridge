@@ -21,7 +21,11 @@
           "cost_class": {"type": "string"},
           "request_contract": {"type": "object"},
           "response_contract": {"type": "object"},
-          "cost_warning": {"type": "string"}
+          "cost_warning": {"type": "string"},
+          "adapter_version": {"type": "string"},
+          "provider_api_version": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "retention": {"type": "object"}
         },
         "additionalProperties": false
       }

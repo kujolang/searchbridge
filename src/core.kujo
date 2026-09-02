@@ -1,4 +1,5 @@
 # SearchBridge shared contracts, provider catalog, normalization, and safety helpers.
+from src.registry import provider_catalog
 
 export VERSION := "0.3.0"
 export RESULT_SCHEMA := "searchbridge.result/v1"
@@ -12,15 +13,7 @@ export func dict_get(record, key, fallback) {
 }
 
 export func providers() {
-	return {
-		"google-search-console": {"capabilities": ["search.performance", "url.inspection"], "env": ["SEARCHBRIDGE_GSC_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "startRow/rowLimit", "max_page_size": 25000}, "response_contract": {"rows": "rows[]"}},
-		"google-analytics-4": {"capabilities": ["analytics"], "env": ["SEARCHBRIDGE_GA4_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "offset/limit"}, "response_contract": {"rows": "rows[]"}},
-		"pagespeed-insights": {"capabilities": ["page.performance"], "env": [], "env_any": [], "optional_env": ["SEARCHBRIDGE_PAGESPEED_KEY"], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "none"}, "response_contract": {"rows": "single"}},
-		"crux": {"capabilities": ["field.performance"], "env": ["SEARCHBRIDGE_CRUX_KEY"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "provider-quota", "request_contract": {"pagination": "none"}, "response_contract": {"rows": "single"}},
-		"indexnow": {"capabilities": ["index.submission"], "env": ["SEARCHBRIDGE_INDEXNOW_KEY"], "env_any": [], "optional_env": [], "write_capabilities": ["index.submission"], "cost_class": "write", "request_contract": {"pagination": "none"}, "response_contract": {"rows": "receipt"}},
-		"bing-webmaster": {"capabilities": ["search.performance", "backlinks", "index.submission"], "env": [], "env_any": ["SEARCHBRIDGE_BING_KEY", "SEARCHBRIDGE_BING_TOKEN"], "optional_env": [], "write_capabilities": ["index.submission"], "cost_class": "provider-quota", "request_contract": {"pagination": "provider-list-window"}, "response_contract": {"rows": "d[]"}},
-		"ahrefs": {"capabilities": ["backlinks", "keyword.data"], "env": ["SEARCHBRIDGE_AHREFS_TOKEN"], "env_any": [], "optional_env": [], "write_capabilities": [], "cost_class": "paid-units", "request_contract": {"pagination": "provider-list-window"}, "response_contract": {"rows": "rows[]"}, "cost_warning": "Most API v3 requests consume Ahrefs API units."}
-	}
+	return provider_catalog()
 }
 
 export func includes(values, needle) {

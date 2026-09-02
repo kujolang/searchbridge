@@ -5,6 +5,7 @@ from src.cache import credential_independent_request_hash, write_cached_response
 from src.adapters import validate_adapter, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter
 from src.commands import pagination_contract_probe
 from src.telemetry import otel_payload, validate_otel_privacy, export_otel
+from src.registry import adapters, validate_registry, providers_for, resolve, agent_catalog
 
 mut passed := 0
 mut failed := 0
@@ -46,6 +47,16 @@ for capability in caps["capabilities"] {
 check(degraded, "missing credentials degrade individual capabilities")
 check(doctor["value"]["health"] == "degraded", "doctor exposes explicit degraded health")
 check(adapter_conformance_report()["ok"], "built-in adapter contracts conform")
+registry := adapters()
+check(validate_registry(registry)["ok"] && len(keys(registry)) == 11, "canonical adapter v2 registry validates")
+check(providers_for("serp.results", false) == ["dataforseo", "serpapi"], "registry discovers providers in deterministic order")
+explicit_route := resolve("analytics", "google-analytics-4", [], [])
+check(explicit_route["ok"] && explicit_route["value"]["mode"] == "explicit", "registry resolves explicit providers")
+auto_route := resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"])
+check(auto_route["ok"] && auto_route["value"]["selected"] == ["serpapi"], "registry auto routing follows configured preferences")
+all_route := resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"])
+check(all_route["ok"] && all_route["value"]["selected"] == ["serpapi", "dataforseo"], "registry all routing preserves configured order")
+check(utf8_size(to_json(agent_catalog())) <= 4096, "agent catalog stays within the 4 KiB budget")
 
 # Every declared read adapter normalizes through a deterministic fixture.
 fixture_cases := [
