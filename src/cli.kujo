@@ -233,7 +233,7 @@ export func run_cli(argv) {
 	otel := export_otel(command, result["value"], options, options["transport"]); if !otel["ok"] { eprint("SearchBridge: " + otel["error"]); return 1 }
 	rendered := render_output(result["value"], options)
 	if !rendered["ok"] { eprint("SearchBridge: " + rendered["error"]); return 1 }
-	if has_key(rendered, "streamed") == false { print(trim_end(rendered["value"])) }
+	if has_key(rendered, "streamed") == 0 { print(trim_end(rendered["value"])) }
 	if includes(["doctor", "capabilities"], command) && options["health_policy"] == "fail" {
 		required := split(options["require_capabilities"], ","); unavailable := []
 		if has_key(result["value"], "unavailable_capabilities") { unavailable = result["value"]["unavailable_capabilities"] }

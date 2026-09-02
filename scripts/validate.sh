@@ -15,8 +15,21 @@ while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.ku
 "$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo
 "$KUJO_RUNTIME" run scripts/sdk_compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null
-KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version >/dev/null
-KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic >/dev/null
+version_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version)"
+fixture_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic)"
+if [[ -z "$version_output" || -z "$fixture_output" ]]; then
+	printf 'SearchBridge validation failed: successful JSON commands must emit stdout.\n' >&2
+	exit 1
+fi
+validation_documents="$(mktemp -d)"
+version_document="$validation_documents/version.json"
+fixture_document="$validation_documents/fixture.json"
+printf '%s' "$version_output" > "$version_document"
+printf '%s' "$fixture_output" > "$fixture_document"
+"$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$version_document"
+"$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$fixture_document"
+rm "$version_document" "$fixture_document"
+rmdir "$validation_documents"
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge analytics --fixture --offline --deterministic --format jsonl >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./searchbridge batch --fixture --offline --deterministic --commands pagespeed,crux >/dev/null
 query_fixture="$(mktemp)"
