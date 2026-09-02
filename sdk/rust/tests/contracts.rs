@@ -1,4 +1,4 @@
-use searchbridge_types::{SearchBridgeBatch, SearchBridgeResult};
+use searchbridge::{SearchBridgeBatch, SearchBridgeResult};
 use serde_json::Value;
 
 const GOLDENS: &[(&str, &str)] = &[

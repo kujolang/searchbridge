@@ -1,1 +1,1 @@
-{"name":"@kujolang/searchbridge-types","version":"0.4.0","private":true,"type":"module","scripts":{"check":"tsc --noEmit"},"devDependencies":{"typescript":"^5.9.2"}}
+{"name":"@kujolang/searchbridge","version":"0.4.0","description":"Typed local CLI SDK for SearchBridge","license":"MIT","type":"module","main":"dist/index.js","types":"dist/index.d.ts","files":["dist","README.md"],"scripts":{"build":"tsc","check":"tsc --noEmit"},"devDependencies":{"@types/node":"^24.3.0","typescript":"^5.9.2"}}

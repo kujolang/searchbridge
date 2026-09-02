@@ -1,3 +1,6 @@
+mod client;
+pub use client::{read_json_lines, validate_result, SearchBridgeClient, SearchBridgeError};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

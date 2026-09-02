@@ -1,1 +1,1 @@
-{"compilerOptions":{"strict":true,"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","noEmit":true},"include":["index.ts","contract.test.ts"]}
+{"compilerOptions":{"strict":true,"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","declaration":true,"outDir":"dist","rootDir":"."},"include":["index.ts","client.ts","contract.test.ts","example.ts"]}

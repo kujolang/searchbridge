@@ -61,7 +61,7 @@ provider behavior, not discover missing core architecture.
 
 - [x] Ship a runnable local stdio MCP server if MCP is a supported integration,
   generated from the same catalog and preserving submission confirmation.
-- [ ] Package usable TypeScript, Rust, and Go SDK artifacts with typed errors,
+- [x] Package usable TypeScript, Rust, and Go SDK artifacts with typed errors,
   streaming readers, validation helpers, examples, checksums, and provenance.
 - [ ] Build reproducible, checksum-verified runtime bundles for every supported
   platform and test clean/offline installation.

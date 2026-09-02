@@ -15,4 +15,5 @@ for name in manifest["row_schemas"] {
 	checked = checked + 1
 }
 for source in ["sdk/typescript/index.ts", "sdk/rust/src/lib.rs", "sdk/go/searchbridge.go"] { if !file_exists(source) || file_size(source) == 0 { eprint("missing generated SDK consumer: " + source); exit(1) } }
+for source in ["sdk/typescript/client.ts", "sdk/rust/src/client.rs", "sdk/go/client.go"] { if !file_exists(source) || file_size(source) == 0 { eprint("missing executable SDK client: " + source); exit(1) } }
 print(to_string(checked) + " golden envelope and row-schema contracts are represented by generated SDK consumers.")

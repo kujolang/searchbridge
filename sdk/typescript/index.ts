@@ -6,3 +6,4 @@ export interface SearchBridgeResult<Row extends JsonValue = JsonValue> { schema:
 export interface SearchBridgeBatch { schema: 'searchbridge.batch/v1'; bounded_concurrency: number; execution?: string; cancel_file?: string; succeeded: number; failed: number; results: JsonValue[]; provenance?: SearchBridgeProvenance }
 export interface SearchBridgeMultiResult { schema: 'searchbridge.multi-result/v1'; capability: string; routing: JsonValue; budget: JsonValue; succeeded: number; failed: number; results: Array<{ provider: string; ok: boolean; value?: SearchBridgeResult; error?: JsonValue }>; provenance?: SearchBridgeProvenance }
 export type RankTrackingRow = JsonValue; export type SerpResultsRow = JsonValue; export type DomainVisibilityRow = JsonValue; export type TrafficEstimateRow = JsonValue; export type EdgeAnalyticsRow = JsonValue;
+export * from './client.js';

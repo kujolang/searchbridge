@@ -18,6 +18,7 @@ bash scripts/run_network_fault_gate.sh
 bash scripts/cache_permission_gate.sh
 "$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo
 "$KUJO_RUNTIME" run scripts/sdk_compatibility_gate.kujo
+bash scripts/sdk_runtime_gate.sh >/dev/null
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null
 "$KUJO_RUNTIME" run scripts/expansion_benchmark.kujo -- --rows 1000 >/dev/null
 "$KUJO_RUNTIME" run scripts/reliability_qualification.kujo >/dev/null

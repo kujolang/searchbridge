@@ -7,5 +7,7 @@ go := "package searchbridge\n\nimport \"encoding/json\"\n\ntype Provenance struc
 write_file(root + "/typescript/index.ts", typescript, true)
 write_file(root + "/rust/src/lib.rs", rust, true)
 write_file(root + "/go/searchbridge.go", go, true)
+write_file(root + "/typescript/index.ts", read_file(root + "/typescript/index.ts") + "export * from './client.js';\n", true)
+write_file(root + "/rust/src/lib.rs", "mod client;\npub use client::{read_json_lines, validate_result, SearchBridgeClient, SearchBridgeError};\n\n" + read_file(root + "/rust/src/lib.rs"), true)
 write_file(root + "/manifest.json", to_json({"schema": "searchbridge.sdk-manifest/v1", "generated_by": "scripts/generate_sdk_types.kujo", "contract_series": "0.2.x", "languages": ["typescript", "rust", "go"], "golden_documents": sort(list_dir("fixtures/golden/0.2")), "row_schemas": sort(list_dir("schemas/rows"))}) + "\n", true)
 print("Generated TypeScript, Rust, and Go SearchBridge contract types.")
