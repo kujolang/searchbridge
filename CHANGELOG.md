@@ -29,6 +29,7 @@
 - Added deterministic self-contained runtime bundles and clean, network-free installation smoke tests across supported CI platforms.
 - Added an operator runbook for agent/CI rollout, replay, joins, external adapters, upgrades, rollback, recovery, and provider outages.
 - Made the redirect-denial qualification portable across Kujo transport backends without depending on backend-specific error text.
+- Added a clean-checkout release-candidate gate retaining benchmarks, SDK packages, runtime bundles, SBOM, checksums, and GitHub build attestations.
 
 ## 0.3.0 — 2026-08-12
 

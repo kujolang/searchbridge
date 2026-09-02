@@ -1,0 +1,70 @@
+name: release-candidate
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+env:
+  KUJO_COMMIT: 3bc5b4f1634d9883a789a0c2a0e6a266f72b77b2
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          path: searchbridge
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: kujolang/kujo
+          ref: ${{ env.KUJO_COMMIT }}
+          path: kujo
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: searchbridge/sdk/typescript/package-lock.json
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: searchbridge/sdk/go/go.mod
+          cache-dependency-path: searchbridge/sdk/go/go.mod
+      - name: Build exact supported runtime
+        run: cargo build --release --locked --manifest-path kujo/Cargo.toml
+      - name: Qualify clean checkout and build evidence
+        working-directory: searchbridge
+        env:
+          KUJO_BIN: ${{ github.workspace }}/kujo/target/release/kujo
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          bash scripts/validate.sh
+          test -z "$(git status --porcelain)"
+          mkdir -p dist/qualification
+          bash scripts/package_sdks.sh
+          "$KUJO_BIN" run scripts/release_artifacts.kujo
+          "$KUJO_BIN" run scripts/benchmark.kujo -- --iterations 100 > dist/qualification/benchmark.json
+          "$KUJO_BIN" run scripts/expansion_benchmark.kujo -- --rows 100000 > dist/qualification/expansion-benchmark.json
+          first="$(bash scripts/build_runtime_bundle.sh linux-x64)"
+          first_hash="$(sha256sum "$first" | cut -d ' ' -f 1)"
+          second="$(bash scripts/build_runtime_bundle.sh linux-x64)"
+          second_hash="$(sha256sum "$second" | cut -d ' ' -f 1)"
+          test "$first_hash" = "$second_hash"
+          find dist -type f ! -name RC-SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > dist/RC-SHA256SUMS
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: |
+            searchbridge/dist/runtime/*.tar.gz
+            searchbridge/dist/sdk/*.tgz
+            searchbridge/dist/sdk/*.crate
+            searchbridge/dist/sdk/*.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: searchbridge/dist
+          retention-days: 90
+          if-no-files-found: error
