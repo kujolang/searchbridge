@@ -37,3 +37,5 @@ jobs:
         working-directory: sdk/rust
       - run: go test ./...
         working-directory: sdk/go
+        env:
+          KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo

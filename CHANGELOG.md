@@ -33,6 +33,7 @@
 - Made the SDK validation gate bootstrap its locked TypeScript toolchain in a clean checkout.
 - Added executable encrypted-replay CI and signed external-adapter starter examples and closed the completed 0.4 engineering backlog.
 - Updated stdio MCP negotiation to the current stable protocol with bounded framing and included licenses in every SDK package.
+- Made the HTTP fault server accept proxy-style absolute request targets and supplied the pinned runtime to the standalone Go SDK example gate.
 
 ## 0.3.0 — 2026-08-12
 

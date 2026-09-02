@@ -12,7 +12,15 @@ fn respond(mut stream: TcpStream) {
     let mut request = [0_u8; 4096];
     let size = stream.read(&mut request).unwrap_or(0);
     let first = String::from_utf8_lossy(&request[..size]);
-    let path = first.split_whitespace().nth(1).unwrap_or("/");
+    let target = first.split_whitespace().nth(1).unwrap_or("/");
+    let path = if target.starts_with("http://") || target.starts_with("https://") {
+        target
+            .split_once("://")
+            .and_then(|(_, authority_and_path)| authority_and_path.find('/').map(|at| &authority_and_path[at..]))
+            .unwrap_or("/")
+    } else {
+        target
+    };
     if path == "/drop" { return; }
     if path == "/slow" { thread::sleep(Duration::from_secs(1)); }
     let (status, headers, body) = if path == "/redirect" {
