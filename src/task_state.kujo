@@ -1,0 +1,16 @@
+from src.core import dict_get, failure, success, clean_error
+
+func state_key(provider, operation, query_fingerprint) { return sha256(provider + "\n" + operation + "\n" + query_fingerprint) }
+func state_path(directory, key) { return path_join(directory, key + ".task.json") }
+
+export func write_task_state(directory, provider, operation, query_fingerprint, task_id, now_ms) {
+	if directory == "" { return success(false) }; if !regex_match(task_id, "^[A-Za-z0-9._:-]{1,256}$") { return failure("refusing unsafe provider task id") }
+	try { if !path_is_dir(directory) { create_dir(directory) }; key := state_key(provider, operation, query_fingerprint); record := {"schema": "searchbridge.task-state/v1", "key": key, "provider": provider, "operation": operation, "query_fingerprint": query_fingerprint, "task_id": task_id, "stored_at_ms": now_ms}; write_file_atomic(state_path(directory, key), to_json(record) + "\n", true); return success(true) } except state_error { return failure("task state write failed: " + clean_error(state_error)) }
+}
+
+export func read_task_state(directory, provider, operation, query_fingerprint, max_age_seconds, now_ms) {
+	if directory == "" { return failure("task state directory is disabled") }; key := state_key(provider, operation, query_fingerprint); path := state_path(directory, key); if !file_exists(path) || path_is_symlink(path) { return failure("resumable task state is unavailable") }
+	try { record := parse_json(read_file(path)); if dict_get(record, "schema", "") != "searchbridge.task-state/v1" || dict_get(record, "key", "") != key || dict_get(record, "provider", "") != provider || dict_get(record, "operation", "") != operation || dict_get(record, "query_fingerprint", "") != query_fingerprint { return failure("resumable task state identity mismatch") }; task_id := dict_get(record, "task_id", ""); if !regex_match(task_id, "^[A-Za-z0-9._:-]{1,256}$") { return failure("resumable task state contains an unsafe task id") }; age_ms := now_ms - dict_get(record, "stored_at_ms", 0); if age_ms < 0 || age_ms > max_age_seconds * 1000 { delete_file(path); return failure("resumable task state expired and was removed") }; return success(record) } except state_error { return failure("task state read failed: " + clean_error(state_error)) }
+}
+
+export func clear_task_state(directory, provider, operation, query_fingerprint) { if directory == "" { return success(false) }; path := state_path(directory, state_key(provider, operation, query_fingerprint)); if file_exists(path) && !path_is_symlink(path) { delete_file(path); return success(true) }; return success(false) }

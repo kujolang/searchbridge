@@ -14,6 +14,7 @@
 - Replaced conformance declarations with executable empty, missing-field, partial, provider-error, rate-limit, pagination, bounds, redaction, and cost probes shared by every operation report.
 - Added a scheduled drift gate over sanitized, credential-free Google Discovery method and schema shapes for GSC, GA4, PageSpeed, URL Inspection, and CrUX.
 - Added per-operation retry allowlists and caps plus bounded circuit breaking; task creation and write operations are explicitly non-retryable.
+- Added query-bound, expiring local task receipts so interrupted DataForSEO and external asynchronous jobs can resume bounded polling without reposting paid work.
 
 ## 0.3.0 — 2026-08-12
 

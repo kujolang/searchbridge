@@ -2,6 +2,7 @@ from src.core import failure, success, fixture, envelope, dict_get, take, query_
 from src.registry import adapters, operation_for
 from src.transport import request_json
 from src.protocols import cost_preflight, graphql_result, validate_exact_endpoint, validate_template_endpoint
+from src.task_state import write_task_state, read_task_state, clear_task_state
 
 func run_mode(options) { if options["fixture"] { return "fixture" }; return "live" }
 func locale(options) { mut value := options["language"]; if value == "" { value = "en" }; return value + "-" + to_upper(options["country"]) }
@@ -94,18 +95,19 @@ func live_request(provider, capability, options) {
 		if capability == "keyword.data" { endpoint = "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"; body = [{"keywords": [keyword(options)], "location_name": options["location"], "language_code": options["language"]}] }
 		op := operation_for(provider, capability)["value"]; approved := op["request"]["endpoint_template"]; checked_endpoint := validate_exact_endpoint(endpoint, approved, false); if !checked_endpoint["ok"] { return checked_endpoint }
 		mut request_options := {}; for key in keys(options) { request_options[key] := options[key] }; request_options["retries"] = 0; request_options["max_calls"] = 1
-		posted := request_json(endpoint, "POST", body, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, request_options, options["transport"])
-		if capability != "rank.tracking" || !posted["ok"] { return posted }
-		tasks := dict_get(posted["value"]["body"], "tasks", []); if len(tasks) == 0 { return failure("DataForSEO task response omitted a task") }; task_id := dict_get(tasks[0], "id", "")
+		if capability != "rank.tracking" { return request_json(endpoint, "POST", body, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, request_options, options["transport"]) }
+		task_fingerprint := query_fingerprint(options, capability); mut task_id := ""; mut initial_calls := 0; mut resumed := false
+		if dict_get(options, "resume_task", false) { saved := read_task_state(dict_get(options, "task_state_dir", ""), provider, op["id"], task_fingerprint, dict_get(options, "task_state_max_age", 86400), current_timestamp()); if !saved["ok"] { return saved }; task_id = saved["value"]["task_id"]; resumed = true }
+		else { posted := request_json(endpoint, "POST", body, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, request_options, options["transport"]); if !posted["ok"] { return posted }; tasks := dict_get(posted["value"]["body"], "tasks", []); if len(tasks) == 0 { return failure("DataForSEO task response omitted a task") }; task_id = dict_get(tasks[0], "id", ""); initial_calls = 1; if dict_get(options, "task_state_dir", "") != "" { saved := write_task_state(options["task_state_dir"], provider, op["id"], task_fingerprint, task_id, current_timestamp()); if !saved["ok"] { return saved } } }
 		if !regex_match(task_id, "^[A-Za-z0-9._:-]{1,256}$") { return failure("invalid provider task id") }
-		mut calls := 1; mut polls := 0; started := current_timestamp(); result_template := op["request"]["result_endpoint_template"]; base := replace(result_template, "{task_id}", "")
+		mut calls := initial_calls; mut polls := 0; started := current_timestamp(); result_template := op["request"]["result_endpoint_template"]; base := replace(result_template, "{task_id}", "")
 		while calls < options["max_calls"] && polls < options["max_polls"] && current_timestamp() - started <= options["max_elapsed_ms"] {
 			result_endpoint := base + task_id; checked_result_endpoint := validate_template_endpoint(result_endpoint, result_template, "{task_id}", task_id); if !checked_result_endpoint["ok"] { return checked_result_endpoint }
 			polled := request_json(result_endpoint, "GET", null, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, request_options, options["transport"]); calls = calls + 1; polls = polls + 1
-			if !polled["ok"] { return polled }; if len(dfs_items(polled["value"]["body"])) > 0 { telemetry := polled["value"]["telemetry"]; telemetry["task_polls"] := polls; telemetry["attempts"] = calls; mut polled_value := polled["value"]; polled_value["telemetry"] = telemetry; return success(polled_value) }
+			if !polled["ok"] { return polled }; if len(dfs_items(polled["value"]["body"])) > 0 { clear_task_state(dict_get(options, "task_state_dir", ""), provider, op["id"], task_fingerprint); telemetry := polled["value"]["telemetry"]; telemetry["task_polls"] := polls; telemetry["task_resumed"] := resumed; telemetry["attempts"] = calls; mut polled_value := polled["value"]; polled_value["telemetry"] = telemetry; return success(polled_value) }
 			sleep(250)
 		}
-		return failure("DataForSEO task polling budget exceeded")
+		return failure("DataForSEO task polling budget exceeded; resumable state retained when configured")
 	}
 	if provider == "serpapi" {
 		key := env("SEARCHBRIDGE_SERPAPI_KEY"); if key == "" { return failure("SerpApi credential is unavailable") }

@@ -7,8 +7,8 @@ from src.telemetry import export_otel
 from src.registry import resolve, operation_for, adapters
 from src.provider_runtime import execute_new_provider
 
-func bool_flags() { return ["fixture", "offline", "replay", "deterministic", "act", "yes", "cache-require-encryption", "allow-paid"] }
-func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field"] }
+func bool_flags() { return ["fixture", "offline", "replay", "resume-task", "deterministic", "act", "yes", "cache-require-encryption", "allow-paid"] }
+func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "task-state-dir", "task-state-max-age", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field"] }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
 func apply_reliability(options, operation) { policy := dict_get(operation, "reliability", {}); max_retries := dict_get(policy, "max_retries", options["retries"]); if options["retries"] > max_retries { options["retries"] = max_retries }; options["retry_statuses"] = dict_get(policy, "retry_statuses", [429, 500, 502, 503, 504]); options["retry_delay_cap_ms"] = dict_get(policy, "retry_delay_cap_ms", 5000); options["circuit_failure_threshold"] = dict_get(policy, "circuit_failure_threshold", 3); return options }
@@ -16,14 +16,14 @@ func commands() { return ["doctor", "capabilities", "providers", "agent-catalog"
 
 func default_options() {
 	return {
-		"fixture": false, "offline": false, "replay": false, "deterministic": false, "act": false, "yes": false, "cache_require_encryption": false, "allow_paid": false,
+		"fixture": false, "offline": false, "replay": false, "resume_task": false, "deterministic": false, "act": false, "yes": false, "cache_require_encryption": false, "allow_paid": false,
 		"out": "", "timeout": 30.0, "retries": 2, "limit": 100, "page_size": 100, "max_pages": 10, "max_total_rows": 1000,
 		"max_output_bytes": 1048576, "max_output_tokens": 250000,
 		"provider": "", "property": "", "start_date": "", "end_date": "",
 		"dimensions": "", "metrics": "", "url": "", "urls": [],
 		"strategy": "mobile", "form_factor": "PHONE", "target": "", "keyword": "",
 		"country": "US", "location": "United States", "language": "en", "device": "desktop", "operation": "", "route_preferences": "", "enabled_providers": "", "max_providers": 8, "max_calls": 0, "max_provider_units": 0.0, "max_polls": 20, "max_elapsed_ms": 120000, "key_location": "", "endpoint": "", "capability": "", "transport": null,
-		"format": "json", "cache_dir": "", "cache_max_age": 86400, "cache_encryption_key_env": "", "replay_capabilities": "", "config": "", "profile": "", "health_policy": "info", "degraded_exit_code": 3, "require_capabilities": "", "commands": "", "max_concurrency": 4, "cancel_file": "",
+		"format": "json", "cache_dir": "", "cache_max_age": 86400, "cache_encryption_key_env": "", "replay_capabilities": "", "task_state_dir": "", "task_state_max_age": 86400, "config": "", "profile": "", "health_policy": "info", "degraded_exit_code": 3, "require_capabilities": "", "commands": "", "max_concurrency": 4, "cancel_file": "",
 		"adapter_manifest": "", "adapter_signature": "", "adapter_key_env": "", "adapter_allow_capabilities": "", "adapter_allow_endpoints": "", "adapter_allow_credentials": "",
 		"otel_endpoint": "", "otel_service_name": "searchbridge", "evidence_path": "", "filter_field": "", "filter_equals": "", "join_path": "", "left_field": "", "right_field": ""
 	}
@@ -69,7 +69,7 @@ export func parse_options(tokens) {
 		options["page_size"] = to_int(options["page_size"]); options["max_pages"] = to_int(options["max_pages"]); options["max_total_rows"] = to_int(options["max_total_rows"])
 		options["max_output_bytes"] = to_int(options["max_output_bytes"])
 		options["max_output_tokens"] = to_int(options["max_output_tokens"])
-		options["cache_max_age"] = to_int(options["cache_max_age"]); options["degraded_exit_code"] = to_int(options["degraded_exit_code"]); options["max_concurrency"] = to_int(options["max_concurrency"])
+		options["cache_max_age"] = to_int(options["cache_max_age"]); options["task_state_max_age"] = to_int(options["task_state_max_age"]); options["degraded_exit_code"] = to_int(options["degraded_exit_code"]); options["max_concurrency"] = to_int(options["max_concurrency"])
 		options["max_providers"] = to_int(options["max_providers"]); options["max_calls"] = to_int(options["max_calls"]); options["max_provider_units"] = to_float(options["max_provider_units"]); options["max_polls"] = to_int(options["max_polls"]); options["max_elapsed_ms"] = to_int(options["max_elapsed_ms"])
 	} except number_error { return failure("numeric option contains an invalid value") }
 	if options["timeout"] <= 0 || options["timeout"] > 120 { return failure("--timeout must be between 0 and 120 seconds") }
@@ -78,7 +78,8 @@ export func parse_options(tokens) {
 	if options["page_size"] < 1 || options["page_size"] > 25000 || options["max_pages"] < 1 || options["max_pages"] > 1000 || options["max_total_rows"] < 1 || options["max_total_rows"] > 100000 { return failure("pagination budgets are outside supported bounds") }
 	if options["max_output_bytes"] < 256 { return failure("--max-output-bytes must be at least 256") }
 	if options["max_output_tokens"] < 64 { return failure("--max-output-tokens must be at least 64") }
-	if options["cache_max_age"] < 0 || options["max_concurrency"] < 1 || options["max_concurrency"] > 32 { return failure("cache age or concurrency is outside supported bounds") }
+	if options["cache_max_age"] < 0 || options["task_state_max_age"] < 1 || options["task_state_max_age"] > 604800 || options["max_concurrency"] < 1 || options["max_concurrency"] > 32 { return failure("cache/task-state age or concurrency is outside supported bounds") }
+	if options["resume_task"] && options["task_state_dir"] == "" { return failure("--resume-task requires --task-state-dir") }
 	if options["max_providers"] < 1 || options["max_providers"] > 8 || options["max_calls"] < 0 || options["max_calls"] > 1000 || options["max_provider_units"] < 0 || options["max_polls"] < 1 || options["max_polls"] > 20 || options["max_elapsed_ms"] < 1 || options["max_elapsed_ms"] > 120000 { return failure("provider execution budgets are outside supported bounds") }
 	if !includes(["json", "jsonl"], options["format"]) { return failure("--format must be json or jsonl") }
 	if !includes(["info", "warn", "fail"], options["health_policy"]) { return failure("--health-policy must be info, warn, or fail") }
@@ -327,6 +328,7 @@ func print_help() {
 	print("                --timeout SEC --retries N --limit N --format json|jsonl")
 	print("                --page-size N --max-pages N --max-total-rows N")
 	print("                --config PATH --profile NAME --cache-dir PATH --replay")
+	print("                --task-state-dir PATH [--resume-task] --task-state-max-age SEC")
 	print("                --otel-endpoint HTTPS_OR_FILE --cancel-file PATH")
 	print("                --max-output-bytes N --max-output-tokens N")
 	print("Fetch: --capability ID --provider ID|auto|all [--route-preferences IDS]")

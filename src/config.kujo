@@ -1,7 +1,7 @@
 from src.core import dict_get, failure, success
 
 export func configurable_keys() {
-	return ["fixture", "offline", "deterministic", "allow_paid", "timeout", "retries", "limit", "page_size", "max_pages", "max_total_rows", "max_output_bytes", "max_output_tokens", "format", "cache_dir", "cache_max_age", "health_policy", "degraded_exit_code", "max_concurrency", "route_preferences", "enabled_providers", "max_providers", "max_calls", "max_provider_units", "max_polls", "max_elapsed_ms"]
+	return ["fixture", "offline", "deterministic", "allow_paid", "timeout", "retries", "limit", "page_size", "max_pages", "max_total_rows", "max_output_bytes", "max_output_tokens", "format", "cache_dir", "cache_max_age", "task_state_dir", "task_state_max_age", "health_policy", "degraded_exit_code", "max_concurrency", "route_preferences", "enabled_providers", "max_providers", "max_calls", "max_provider_units", "max_polls", "max_elapsed_ms"]
 }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
@@ -61,7 +61,7 @@ export func environment_overrides() {
 		"timeout": "SEARCHBRIDGE_TIMEOUT", "retries": "SEARCHBRIDGE_RETRIES", "limit": "SEARCHBRIDGE_LIMIT",
 		"page_size": "SEARCHBRIDGE_PAGE_SIZE", "max_pages": "SEARCHBRIDGE_MAX_PAGES", "max_total_rows": "SEARCHBRIDGE_MAX_TOTAL_ROWS",
 		"max_output_bytes": "SEARCHBRIDGE_MAX_OUTPUT_BYTES", "max_output_tokens": "SEARCHBRIDGE_MAX_OUTPUT_TOKENS",
-		"format": "SEARCHBRIDGE_FORMAT", "cache_dir": "SEARCHBRIDGE_CACHE_DIR", "cache_max_age": "SEARCHBRIDGE_CACHE_MAX_AGE",
+		"format": "SEARCHBRIDGE_FORMAT", "cache_dir": "SEARCHBRIDGE_CACHE_DIR", "cache_max_age": "SEARCHBRIDGE_CACHE_MAX_AGE", "task_state_dir": "SEARCHBRIDGE_TASK_STATE_DIR", "task_state_max_age": "SEARCHBRIDGE_TASK_STATE_MAX_AGE",
 		"health_policy": "SEARCHBRIDGE_HEALTH_POLICY", "degraded_exit_code": "SEARCHBRIDGE_DEGRADED_EXIT_CODE", "max_concurrency": "SEARCHBRIDGE_MAX_CONCURRENCY"
 		,"route_preferences": "SEARCHBRIDGE_ROUTE_PREFERENCES", "enabled_providers": "SEARCHBRIDGE_ENABLED_PROVIDERS", "max_providers": "SEARCHBRIDGE_MAX_PROVIDERS", "max_calls": "SEARCHBRIDGE_MAX_CALLS", "max_provider_units": "SEARCHBRIDGE_MAX_PROVIDER_UNITS", "max_polls": "SEARCHBRIDGE_MAX_POLLS", "max_elapsed_ms": "SEARCHBRIDGE_MAX_ELAPSED_MS"
 	}

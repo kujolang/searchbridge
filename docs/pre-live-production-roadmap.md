@@ -36,7 +36,7 @@ provider behavior, not discover missing core architecture.
 ## 3. Reliability, scale, and recovery
 
 - [x] Add operation-specific retry/rate-limit policy and circuit breaking.
-- [ ] Make asynchronous provider tasks resumable with bounded polling and
+- [x] Make asynchronous provider tasks resumable with bounded polling and
   interruption cleanup.
 - [ ] Add local HTTP/TLS simulations for redirects, timeouts, malformed data,
   private destinations, throttling, and dropped connections.

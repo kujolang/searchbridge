@@ -7,6 +7,7 @@ from src.commands import pagination_contract_probe
 from src.telemetry import otel_payload, validate_otel_privacy, export_otel
 from src.registry import adapters, validate_registry, providers_for, resolve, agent_catalog
 from src.protocols import cost_preflight, cursor_sequence, async_task_sequence, bounded_csv_parse, graphql_result, validate_exact_endpoint, stream_synthetic_jsonl
+from src.task_state import write_task_state, read_task_state, clear_task_state
 
 mut passed := 0
 mut failed := 0
@@ -106,6 +107,9 @@ check(!cursor_sequence(["a", "a"], 3)["ok"] && cursor_sequence(["a", "b"], 2)["o
 task_done := async_task_sequence([{"id": "task-1", "status": "pending", "elapsed_ms": 10}, {"id": "task-1", "status": "completed", "elapsed_ms": 10, "result": {"rows": []}}], 2, 100)
 check(task_done["ok"] && task_done["value"]["polls"] == 2, "async task state machine completes within poll and elapsed budgets")
 check(!async_task_sequence([{"id": "bad\nvalue", "status": "pending"}], 2, 100)["ok"], "async task IDs reject control characters")
+task_state_dir := "/tmp/searchbridge-task-state-" + to_string(current_timestamp()); stored_task := write_task_state(task_state_dir, "dataforseo", "rank", "sha256:query", "task-1", current_timestamp()); resumed_task := read_task_state(task_state_dir, "dataforseo", "rank", "sha256:query", 60, current_timestamp()); cleared_task := clear_task_state(task_state_dir, "dataforseo", "rank", "sha256:query"); check(stored_task["ok"] && resumed_task["ok"] && resumed_task["value"]["task_id"] == "task-1" && cleared_task["ok"] && !read_task_state(task_state_dir, "dataforseo", "rank", "sha256:query", 60, current_timestamp())["ok"], "async task state is identity-bound, resumable, and cleared on completion")
+expired_dir := "/tmp/searchbridge-task-expired-" + to_string(current_timestamp()); write_task_state(expired_dir, "dataforseo", "rank", "sha256:old", "task-old", 1); expired_task := read_task_state(expired_dir, "dataforseo", "rank", "sha256:old", 1, current_timestamp()); check(!expired_task["ok"] && contains(expired_task["error"], "expired") == 1, "stale async task state expires within a declared bound")
+check(!prepare_options("fetch", ["--capability", "rank.tracking", "--provider", "dataforseo", "--resume-task"])["ok"], "task resume requires an explicit state directory")
 external_pagination := external_pagination_contract_probe()
 check(external_pagination["cursor"]["ok"] && len(external_pagination["cursor"]["value"]["rows"]) == 2 && external_pagination["cursor"]["value"]["pagination"]["pages_fetched"] == 2, "external cursor pagination follows and bounds unique cursors")
 check(external_pagination["page"]["ok"] && len(external_pagination["page"]["value"]["rows"]) == 3 && external_pagination["page"]["value"]["pagination"]["pages_fetched"] == 2, "external page-size pagination stops on the partial page")

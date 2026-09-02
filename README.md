@@ -64,7 +64,8 @@ Evidence commands support `--fixture`, `--offline`, `--deterministic`, `--out`,
 single-window normalization.) Scale and operations controls include `--page-size`,
 `--max-pages`, `--max-total-rows`, `--format jsonl`, `--cache-dir`, `--replay`,
 `--config`, `--profile`, `--health-policy`, `--degraded-exit-code`,
-`--cancel-file`, and opt-in `--otel-endpoint`. Run
+`--cancel-file`, `--task-state-dir`, `--resume-task`, and opt-in
+`--otel-endpoint`. Run
 `./searchbridge --help` for the command list.
 
 ## Scale, replay, and CI health
@@ -83,6 +84,9 @@ jittered retry honors numeric `Retry-After` values.
   --replay --offline
 ./searchbridge doctor --health-policy fail \
   --require-capabilities analytics,page.performance --degraded-exit-code 7
+./searchbridge fetch --capability rank.tracking --provider dataforseo \
+  --task-state-dir .state/searchbridge --resume-task \
+  --allow-paid --max-calls 2 --max-provider-units 2
 ```
 
 Cache keys are hashes of credential-redacted method, URL, and body material;
@@ -97,6 +101,11 @@ The bounded `batch` worker pool overlaps independent reads up to
 a batch. Live GSC and GA4 JSONL exports normalize each page and append it to a
 temporary artifact before atomically publishing the output, so the declared
 full row budget is never retained in memory.
+
+Asynchronous tasks can persist a credential-free, query-bound task identifier
+in an explicit state directory. An interrupted run can continue polling with
+`--resume-task`; completed and expired receipts are removed, while a bounded
+polling failure retains the receipt for a later run.
 
 ## Protected replay and external adapters
 
