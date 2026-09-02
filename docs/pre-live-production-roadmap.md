@@ -27,7 +27,7 @@ provider behavior, not discover missing core architecture.
 - [x] Route installed external adapters through semantic `fetch` without core
   provider-specific branches.
 - [x] Prove the Plausible package through the generic engine in fixture mode.
-- [ ] Replace declarative/hard-coded conformance success flags with behavioral
+- [x] Replace declarative/hard-coded conformance success flags with behavioral
   operation tests for success, empty, partial, provider error, rate limiting,
   pagination, bounds, redaction, and cost metadata.
 - [ ] Make drift checks compare sanitized upstream metadata or response shapes

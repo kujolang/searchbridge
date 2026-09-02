@@ -11,6 +11,7 @@
 - Added aggregate multi-provider budget accounting, all-failed process status, and complete credential-free query fingerprints.
 - Added run/trace/query provenance across envelopes, JSONL, encrypted replay, derived evidence, generated SDKs, and OTLP.
 - Added typed external-adapter body/query templates, row mappings, bounded offset/page/cursor/async pagination, shared JSON/CSV/GraphQL parsing, behavioral fixture conformance, exact credential binding, and explicit semantic-fetch routing for signed packages.
+- Replaced conformance declarations with executable empty, missing-field, partial, provider-error, rate-limit, pagination, bounds, redaction, and cost probes shared by every operation report.
 
 ## 0.3.0 — 2026-08-12
 

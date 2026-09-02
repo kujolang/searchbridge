@@ -1,7 +1,7 @@
 from src.core import VERSION, dict_get, failure, success, providers, query_encode, query_fingerprint
 from src.registry import adapters, operation_for
-from src.transport import request_json, external_pagination_contract_transport
-from src.protocols import validate_exact_endpoint, validate_template_endpoint, graphql_result, cost_preflight
+from src.transport import request_json, external_pagination_contract_transport, retry_contract_probe
+from src.protocols import validate_exact_endpoint, validate_template_endpoint, graphql_result, cost_preflight, bounded_csv_parse
 from src.commands import command_search_performance, command_analytics, command_inspect, command_pagespeed, command_crux, command_backlinks, command_keywords, command_submit
 from src.provider_runtime import execute_new_provider
 
@@ -364,6 +364,23 @@ export func external_pagination_contract_probe() {
 	return {"cursor": cursor_result, "page": page_result, "async": async_result, "query": query_result, "csv": csv_probe_result, "graphql": graphql_probe_result}
 }
 
+export func adapter_behavioral_contract_probe() {
+	protocols := external_pagination_contract_probe(); retry := retry_contract_probe()
+	empty_operation := {"normalization": {"mapping": [], "row_contract": "analytics/v1"}}; empty_result := normalize_external_rows([], empty_operation, conformance_options("synthetic", "analytics"))
+	missing_operation := {"normalization": {"mapping": [{"source": "/missing", "target": "optional", "coerce": "string-or-null"}], "row_contract": "analytics/v1"}}; missing_result := normalize_external_rows([{}], missing_operation, conformance_options("synthetic", "analytics"))
+	error_transport := func(_url, _options) { return Ok({"_status": 400, "_body": to_json({"error": "token=should-not-escape"})}) }; provider_error := request_json("https://example.invalid/error", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 0, "deterministic": true}, error_transport)
+	cost_transport := func(_url, _options) { return Ok({"_status": 200, "_body": "{}", "_headers": {"x-api-units-cost": "2", "x-api-units-remaining": "8"}}) }; cost_result := request_json("https://example.invalid/cost", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 0, "deterministic": true}, cost_transport)
+	mut partial_options := conformance_options("synthetic-external", "analytics"); partial_options["fixture"] = false; partial_options["offline"] = false; partial_options["max_calls"] = 1; partial_options["max_pages"] = 1; partial_options["page_size"] = 2; partial_options["max_total_rows"] = 1; partial_options["transport"] = external_pagination_contract_transport
+	partial_adapter := {"id": "synthetic-external", "adapter_version": "1.0.0", "provider_api_version": "v1", "cost_class": "free", "credentials": [], "retention": {"max_cache_age_seconds": 86400}, "operations": [{"id": "partial", "capability": "analytics", "class": "read", "request": {"method": "POST", "endpoint_template": "https://example.invalid/cursor", "allowed_query_fields": [], "body_template": {}, "redirects": "deny"}, "response": {"format": "json", "rows_pointer": "/rows", "max_bytes": 8388608}, "pagination": {"strategy": "cursor", "request_slot": "body.pagination.cursor", "response_pointer": "/next"}, "normalization": {"mapping": [], "row_contract": "analytics/v1"}, "cost": {}}]}; partial_result := run_signed_adapter_v2(partial_adapter, partial_options)
+	empty_ok := empty_result["ok"] && len(empty_result["value"]) == 0; missing_ok := missing_result["ok"] && type(missing_result["value"][0]["optional"]) == "null"; partial_ok := partial_result["ok"] && len(partial_result["value"]["rows"]) == 1 && partial_result["value"]["pagination"]["pages_fetched"] == 1; provider_error_ok := !provider_error["ok"] && contains(provider_error["error"], "should-not-escape") == 0; rate_limit_ok := retry["retried"]["ok"] && retry["retried"]["value"]["telemetry"]["attempts"] == 2; pagination_ok := protocols["cursor"]["ok"] && protocols["page"]["ok"] && protocols["async"]["ok"]; bounds_ok := !bounded_csv_parse("name;value\nx;" + repeat("x", 33) + "\n", 2, 4, 32)["ok"]; redaction_ok := !retry["failed"]["ok"] && contains(retry["failed"]["error"], "super-secret") == 0; cost_ok := cost_preflight("metered", false, true, 1, 2)["ok"] && cost_result["ok"] && cost_result["value"]["telemetry"]["provider_cost"]["cost"] == "2"
+	return {
+		"success": protocols["query"]["ok"],
+		"empty": empty_ok, "missing_fields": missing_ok, "partial": partial_ok,
+		"provider_error": provider_error_ok, "rate_limit": rate_limit_ok,
+		"pagination": pagination_ok, "bounds": bounds_ok, "redaction": redaction_ok, "cost": cost_ok
+	}
+}
+
 func validate_fixture_result(result, capability) {
 	if !result["ok"] || type(result["value"]) != "dict" { return false }
 	value := result["value"]; if capability == "index.submission" { return dict_get(value, "schema", "") == "searchbridge.submission/v1" && value["indexed"] == false }
@@ -372,7 +389,7 @@ func validate_fixture_result(result, capability) {
 }
 
 export func adapter_conformance_report() {
-	registry := adapters(); mut errors := []; mut reports := []
+	registry := adapters(); mut errors := []; mut reports := []; behavioral := adapter_behavioral_contract_probe(); mut behavioral_ok := true; for name in keys(behavioral) { if behavioral[name] != true { behavioral_ok = false; errors = push(errors, "shared runtime behavioral probe failed: " + name) } }
 	for name in sort(keys(registry)) {
 		adapter := registry[name]; mut adapter_errors := []; mut endpoint_ok := true; mut budgets_ok := true; mut redaction_ok := true; mut fixtures_ok := true; mut discovery_ok := true
 		for field in ["contract", "id", "adapter_version", "provider_api_version", "capabilities", "cost_class", "request_contract", "response_contract", "operations"] { if has_key(adapter, field) == 0 { adapter_errors = push(adapter_errors, "missing " + field) } }
@@ -385,12 +402,13 @@ export func adapter_conformance_report() {
 			fixture_result := execute_builtin_fixture(name, operation["capability"]); if !validate_fixture_result(fixture_result, operation["capability"]) { fixtures_ok = false; adapter_errors = push(adapter_errors, operation["id"] + " fixture execution failed conformance") }
 		}
 		for error in adapter_errors { errors = push(errors, name + " " + error) }
-		reports = push(reports, {"adapter_id": name, "adapter_version": adapter["adapter_version"], "external": false, "ok": len(adapter_errors) == 0, "checks": {"manifest": len(adapter_errors) == 0, "discovery": discovery_ok, "endpoint": endpoint_ok, "budgets": budgets_ok, "redaction": redaction_ok, "fixture": fixtures_ok}})
+		report_ok := len(adapter_errors) == 0 && behavioral_ok; report_redaction := redaction_ok && behavioral["redaction"]; manifest_ok := len(adapter_errors) == 0
+		reports = push(reports, {"adapter_id": name, "adapter_version": adapter["adapter_version"], "external": false, "ok": report_ok, "checks": {"manifest": manifest_ok, "discovery": discovery_ok, "endpoint": endpoint_ok, "budgets": budgets_ok, "redaction": report_redaction, "fixture": fixtures_ok, "behavioral": behavioral}})
 	}
 	plausible_text := read_file("adapters/plausible/adapter.json"); plausible := parse_json(plausible_text); plausible_checked := validate_adapter_v2(plausible); signature_ok := rsa_verify(plausible_text, trim(read_file("adapters/plausible/adapter.sig")), read_file("adapters/plausible/trust-key.pem")); fixture_body := parse_json(read_file("adapters/plausible/" + plausible["operations"][0]["fixture"])); fixture_rows := json_pointer(fixture_body, plausible["operations"][0]["response"]["rows_pointer"]); normalized := normalize_external_rows(fixture_rows, plausible["operations"][0], conformance_options("plausible", "analytics")); fixture_ok := normalized["ok"] && validate_fixture_result(success({"schema": "searchbridge.result/v1", "rows": normalized["value"]}), "analytics")
 	if !plausible_checked["ok"] { for error in plausible_checked["errors"] { errors = push(errors, "plausible " + error) } }
 	if !signature_ok { errors = push(errors, "plausible signature verification failed") }; if !fixture_ok { errors = push(errors, "plausible fixture normalization failed") }; mut write_probe := plausible; mut write_operation := plausible["operations"][0]; write_operation["class"] = "write"; write_probe["operations"] = [write_operation]; external_write_rejection := !validate_adapter_v2(write_probe)["ok"]
 	plausible_manifest_ok := plausible_checked["ok"] && signature_ok; plausible_discovery_ok := len(plausible["capabilities"]) > 0; plausible_endpoint_ok := starts_with(plausible["operations"][0]["request"]["endpoint_template"], "https://"); plausible_budgets_ok := plausible["operations"][0]["response"]["max_bytes"] <= 8388608; plausible_ok := plausible_manifest_ok && fixture_ok && external_write_rejection
-	reports = push(reports, {"adapter_id": "plausible", "adapter_version": plausible["adapter_version"], "external": true, "ok": plausible_ok, "checks": {"manifest": plausible_manifest_ok, "discovery": plausible_discovery_ok, "endpoint": plausible_endpoint_ok, "budgets": plausible_budgets_ok, "redaction": true, "fixture": fixture_ok, "external_write_rejection": external_write_rejection}})
+	external_ok := plausible_ok && behavioral_ok; reports = push(reports, {"adapter_id": "plausible", "adapter_version": plausible["adapter_version"], "external": true, "ok": external_ok, "checks": {"manifest": plausible_manifest_ok, "discovery": plausible_discovery_ok, "endpoint": plausible_endpoint_ok, "budgets": plausible_budgets_ok, "redaction": behavioral["redaction"], "fixture": fixture_ok, "behavioral": behavioral, "external_write_rejection": external_write_rejection}})
 	return {"schema": "searchbridge.adapter-conformance/v1", "ok": len(errors) == 0, "adapter_count": len(reports), "errors": errors, "reports": reports}
 }
