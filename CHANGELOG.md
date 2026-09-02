@@ -32,6 +32,7 @@
 - Added a clean-checkout release-candidate gate retaining benchmarks, SDK packages, runtime bundles, SBOM, checksums, and GitHub build attestations.
 - Made the SDK validation gate bootstrap its locked TypeScript toolchain in a clean checkout.
 - Added executable encrypted-replay CI and signed external-adapter starter examples and closed the completed 0.4 engineering backlog.
+- Updated stdio MCP negotiation to the current stable protocol with bounded framing and included licenses in every SDK package.
 
 ## 0.3.0 — 2026-08-12
 

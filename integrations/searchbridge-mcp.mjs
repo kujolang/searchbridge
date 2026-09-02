@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { createInterface } from 'node:readline';
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +8,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const executable = process.env.SEARCHBRIDGE_BIN || resolve(root, 'searchbridge');
 const catalog = JSON.parse(await readFile(resolve(root, 'integrations/searchbridge-tools.json'), 'utf8'));
 const tools = new Map(catalog.tools.map((tool) => [tool.name, tool]));
+const protocolVersions = ['2025-11-25', '2025-06-18'];
+const maxMessageBytes = 4 * 1024 * 1024;
 
 function error(code, message, data) {
   return { code, message, ...(data === undefined ? {} : { data }) };
@@ -67,7 +68,11 @@ function run(args) {
 async function handle(request) {
   if (!request || request.jsonrpc !== '2.0' || typeof request.method !== 'string') return { jsonrpc: '2.0', id: request?.id ?? null, error: error(-32600, 'Invalid Request') };
   const response = { jsonrpc: '2.0', id: request.id ?? null };
-  if (request.method === 'initialize') return { ...response, result: { protocolVersion: '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'searchbridge', version: '0.4.0' } } };
+  if (request.method === 'initialize') {
+    const requested = request.params?.protocolVersion;
+    const negotiated = protocolVersions.includes(requested) ? requested : protocolVersions[0];
+    return { ...response, result: { protocolVersion: negotiated, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'searchbridge', version: '0.4.0' } } };
+  }
   if (request.method === 'notifications/initialized') return null;
   if (request.method === 'ping') return { ...response, result: {} };
   if (request.method === 'tools/list') return { ...response, result: { tools: catalog.tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.input_schema })) } };
@@ -84,10 +89,19 @@ async function handle(request) {
   return { ...response, error: error(-32601, 'Method not found') };
 }
 
-const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
-for await (const line of input) {
-  if (!line.trim()) continue;
-  let response;
-  try { response = await handle(JSON.parse(line)); } catch { response = { jsonrpc: '2.0', id: null, error: error(-32700, 'Parse error') }; }
-  if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+process.stdin.setEncoding('utf8');
+let buffered = '';
+for await (const chunk of process.stdin) {
+  buffered += chunk;
+  if (Buffer.byteLength(buffered, 'utf8') > maxMessageBytes) {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: error(-32700, 'Message exceeds 4 MiB') })}\n`);
+    process.exitCode = 1; break;
+  }
+  let newline;
+  while ((newline = buffered.indexOf('\n')) >= 0) {
+    const line = buffered.slice(0, newline); buffered = buffered.slice(newline + 1); if (!line.trim()) continue;
+    let response; try { response = await handle(JSON.parse(line)); } catch { response = { jsonrpc: '2.0', id: null, error: error(-32700, 'Parse error') }; }
+    if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+  }
 }
+if (buffered.trim() && process.exitCode !== 1) process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: error(-32700, 'Incomplete JSON-RPC message') })}\n`);

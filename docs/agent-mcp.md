@@ -7,6 +7,8 @@ It reads newline-delimited MCP JSON-RPC messages on stdin, generates its
 `tools/list` surface from `integrations/searchbridge-tools.json`, invokes the
 CLI without a shell, and returns both text and structured JSON content. Set
 `SEARCHBRIDGE_BIN` only when the CLI launcher is installed elsewhere.
+The server negotiates MCP `2025-11-25` and `2025-06-18`, caps each inbound
+message at 4 MiB, and writes no non-protocol data to stdout.
 
 An MCP or agent host maps the tool inputs to the matching SearchBridge CLI command and returns JSON unchanged. Limit agent reads to 100 rows and 25,000 output tokens unless a workflow explicitly raises them. Preserve `provider`, `source`, `query.fingerprint`, `routing`, and `budgets` when handing results to Dispatch, WebOps, or another workflow.
 
