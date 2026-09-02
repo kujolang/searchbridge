@@ -53,7 +53,8 @@ small provenance object so independently streamed rows remain attributable.
 For live paginated GSC and GA4 calls, rows are normalized page-by-page into an
 atomic output artifact; the returned in-process envelope does not retain the
 full row set after the file is published. `evidence-query` emits bounded joined
-or filtered rows under `searchbridge.evidence-query/v1`.
+or filtered rows under `searchbridge.evidence-query/v1`; join outputs identify
+the nested or disk-budgeted spill strategy and report peak spill-file bytes.
 
 Opt-in OpenTelemetry uses OTLP JSON `resourceSpans` and `resourceMetrics`.
 Those payloads are intentionally not evidence envelopes: they contain only

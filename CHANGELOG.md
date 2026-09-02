@@ -17,6 +17,7 @@
 - Added query-bound, expiring local task receipts so interrupted DataForSEO and external asynchronous jobs can resume bounded polling without reposting paid work.
 - Added a real loopback HTTP fault server and self-signed TLS gate covering redirect denial, throttling, timeouts, malformed bodies, dropped connections, and certificate rejection.
 - Added a deterministic 100,000-row load gate, 1,000-iteration soak, worker-pool/cancellation checks, and retry/circuit/pagination fault injection to every full validation.
+- Added indexed SQLite spill joins with explicit input/disk/row bounds, deterministic cleanup, strategy telemetry, and nested-join parity tests.
 
 ## 0.3.0 — 2026-08-12
 

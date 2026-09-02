@@ -127,13 +127,17 @@ every capability, exact HTTPS endpoint, and credential environment variable.
 ## Evidence queries and observability
 
 The `evidence-query` command uses Kujo's bounded streaming JSONL reader. It can
-filter dotted fields and perform a constant-memory nested join without Python,
-Node, a database, or full-file loading.
+filter dotted fields and perform a small nested join or an indexed SQLite spill
+join with explicit row and disk budgets. Spill databases are temporary and are
+removed on success or failure.
 
 ```bash
 ./searchbridge evidence-query --evidence-path analytics.jsonl \
   --filter-field provider --filter-equals google-analytics-4 \
   --max-total-rows 500
+./searchbridge evidence-query --evidence-path left.jsonl --join-path right.jsonl \
+  --left-field row.url --right-field url --join-strategy spill \
+  --join-temp-dir .state/searchbridge-joins --max-join-disk-bytes 67108864
 ```
 
 OpenTelemetry export is disabled unless `--otel-endpoint` is provided. It emits

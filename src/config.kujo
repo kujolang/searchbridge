@@ -1,7 +1,7 @@
 from src.core import dict_get, failure, success
 
 export func configurable_keys() {
-	return ["fixture", "offline", "deterministic", "allow_paid", "timeout", "retries", "limit", "page_size", "max_pages", "max_total_rows", "max_output_bytes", "max_output_tokens", "format", "cache_dir", "cache_max_age", "task_state_dir", "task_state_max_age", "health_policy", "degraded_exit_code", "max_concurrency", "route_preferences", "enabled_providers", "max_providers", "max_calls", "max_provider_units", "max_polls", "max_elapsed_ms"]
+	return ["fixture", "offline", "deterministic", "allow_paid", "timeout", "retries", "limit", "page_size", "max_pages", "max_total_rows", "max_output_bytes", "max_output_tokens", "format", "cache_dir", "cache_max_age", "task_state_dir", "task_state_max_age", "join_strategy", "join_temp_dir", "max_join_disk_bytes", "health_policy", "degraded_exit_code", "max_concurrency", "route_preferences", "enabled_providers", "max_providers", "max_calls", "max_provider_units", "max_polls", "max_elapsed_ms"]
 }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }

@@ -1,13 +1,29 @@
-from src.core import failure, success, dict_get, includes
+from src.core import failure, success, dict_get, includes, utf8_size
+
+func dotted(value, path) { mut current := value; for part in split(path, ".") { if type(current) != "dict" || has_key(current, part) == 0 { return null }; current = current[part] }; return current }
+
+func spill_join(options) {
+	if options["join_temp_dir"] == "" { return failure("spill join requires --join-temp-dir") }; if file_exists(options["join_temp_dir"]) && path_is_symlink(options["join_temp_dir"]) { return failure("spill join directory cannot be a symlink") }; if !path_is_dir(options["join_temp_dir"]) { create_dir(options["join_temp_dir"]) }
+	left_size := io_file_metadata(options["evidence_path"])["size"]; right_size := io_file_metadata(options["join_path"])["size"]; if left_size + right_size > options["max_join_disk_bytes"] { return failure("join inputs exceed --max-join-disk-bytes") }
+	database_path := path_join(options["join_temp_dir"], "searchbridge-join-" + substring(sha256(options["evidence_path"] + "\n" + options["join_path"] + "\n" + to_string(current_timestamp())), 0, 24) + ".sqlite")
+	try {
+		db := db_connect("sqlite", database_path); db_execute(db, "CREATE TABLE left_rows (join_key TEXT NOT NULL, payload TEXT NOT NULL)", []); db_execute(db, "CREATE TABLE right_rows (join_key TEXT NOT NULL, payload TEXT NOT NULL)", [])
+		mut left_count := 0; for line in read_lines(options["evidence_path"]) { if trim(line) == "" { continue }; if utf8_size(line) > 1048576 { db_close(db); delete_file(database_path); return failure("left JSONL line exceeds 1 MiB") }; item := parse_json(line); if options["filter_field"] != "" && to_json(dotted(item, options["filter_field"])) != to_json(options["filter_equals"]) { continue }; key := dotted(item, options["left_field"]); if type(key) != "null" { db_execute(db, "INSERT INTO left_rows (join_key, payload) VALUES (?, ?)", [to_json(key), to_json(item)]); left_count = left_count + 1 }; if left_count > 100000 { db_close(db); delete_file(database_path); return failure("left join input exceeds 100,000 rows") } }
+		mut right_count := 0; for line in read_lines(options["join_path"]) { if trim(line) == "" { continue }; if utf8_size(line) > 1048576 { db_close(db); delete_file(database_path); return failure("right JSONL line exceeds 1 MiB") }; item := parse_json(line); key := dotted(item, options["right_field"]); if type(key) != "null" { db_execute(db, "INSERT INTO right_rows (join_key, payload) VALUES (?, ?)", [to_json(key), to_json(item)]); right_count = right_count + 1 }; if right_count > 100000 { db_close(db); delete_file(database_path); return failure("right join input exceeds 100,000 rows") } }
+		db_execute(db, "CREATE INDEX left_join_key ON left_rows(join_key)", []); db_execute(db, "CREATE INDEX right_join_key ON right_rows(join_key)", []); disk_bytes := io_file_metadata(database_path)["size"]; if disk_bytes > options["max_join_disk_bytes"] { db_close(db); delete_file(database_path); return failure("spill join exceeded its disk budget") }
+		matches := db_query(db, "SELECT l.payload AS left_payload, r.payload AS right_payload FROM left_rows l JOIN right_rows r ON l.join_key = r.join_key LIMIT ?", [options["max_total_rows"]]); mut rows := []; for joined_row in matches { rows = push(rows, {"left": parse_json(joined_row["left_payload"]), "right": parse_json(joined_row["right_payload"])}) }; db_close(db); delete_file(database_path); return success({"rows": rows, "disk_bytes": disk_bytes})
+	} except join_error { if file_exists(database_path) { delete_file(database_path) }; return failure("spill join failed") }
+}
 
 export func query_evidence(options) {
 	if options["evidence_path"] == "" { return failure("evidence-query requires --evidence-path") }
 	mut query := {"max_rows": options["max_total_rows"]}
 	if options["filter_field"] != "" { query["filter_field"] := options["filter_field"]; query["filter_equals"] := options["filter_equals"] }
 	if options["join_path"] != "" { query["join_path"] := options["join_path"]; query["left_field"] := options["left_field"]; query["right_field"] := options["right_field"] }
-	rows := jsonl_query(options["evidence_path"], query)
+	mut strategy := "nested"; if options["join_path"] != "" { strategy = options["join_strategy"]; if strategy == "auto" { input_bytes := io_file_metadata(options["evidence_path"])["size"] + io_file_metadata(options["join_path"])["size"]; if input_bytes > 8388608 { strategy = "spill" } else { strategy = "nested" } } }; mut disk_bytes := 0; mut rows := []
+	if strategy == "spill" { spilled := spill_join(options); if !spilled["ok"] { return spilled }; rows = spilled["value"]["rows"]; disk_bytes = spilled["value"]["disk_bytes"] } else { rows = jsonl_query(options["evidence_path"], query) }
 	if type(rows) != "array" { return failure("evidence query failed") }
 	mut parents := []
 	for item in rows { mut source_item := item; if type(item) == "dict" && has_key(item, "left") { source_item = item["left"] }; run_id := dict_get(dict_get(source_item, "provenance", {}), "run_id", ""); if run_id != "" && !includes(parents, run_id) { parents = push(parents, run_id) } }
-	return success({"schema": "searchbridge.evidence-query/v1", "source": options["evidence_path"], "source_sha256": "sha256:" + sha256_file(options["evidence_path"]), "joined": options["join_path"] != "", "parent_run_ids": parents, "rows": rows})
+	return success({"schema": "searchbridge.evidence-query/v1", "source": options["evidence_path"], "source_sha256": "sha256:" + sha256_file(options["evidence_path"]), "joined": options["join_path"] != "", "join_strategy": strategy, "join_disk_bytes": disk_bytes, "parent_run_ids": parents, "rows": rows})
 }

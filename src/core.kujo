@@ -152,7 +152,8 @@ export func query_fingerprint(options, capability) {
 		"limit": dict_get(options, "limit", 0),
 		"page_size": dict_get(options, "page_size", 0),
 		"max_pages": dict_get(options, "max_pages", 0),
-		"max_total_rows": dict_get(options, "max_total_rows", 0)
+		"max_total_rows": dict_get(options, "max_total_rows", 0),
+		"filter_field": dict_get(options, "filter_field", ""), "filter_equals": dict_get(options, "filter_equals", ""), "left_field": dict_get(options, "left_field", ""), "right_field": dict_get(options, "right_field", "")
 	}
 	return "sha256:" + sha256(to_json(query))
 }

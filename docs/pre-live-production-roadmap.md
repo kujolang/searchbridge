@@ -41,7 +41,7 @@ provider behavior, not discover missing core architecture.
 - [x] Add local HTTP/TLS simulations for redirects, timeouts, malformed data,
   private destinations, throttling, and dropped connections.
 - [x] Add load, soak, cancellation, and fault-injection qualification.
-- [ ] Add spillable, disk-budgeted evidence joins.
+- [x] Add spillable, disk-budgeted evidence joins.
 - [ ] Add cache v1 audit/migration, key rotation, retention cleanup, corruption
   recovery, and restrictive file-permission tests.
 
