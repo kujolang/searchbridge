@@ -17,8 +17,11 @@ func adapter(id, version, api_version, capabilities, env_required, env_any, env_
 	}
 }
 
+mut REGISTRY_CACHE := null
+
 export func adapters() {
-	return {
+	if type(REGISTRY_CACHE) != "null" { return REGISTRY_CACHE }
+	REGISTRY_CACHE = {
 		"google-search-console": adapter("google-search-console", "2.0.0", "v1", ["search.performance", "url.inspection"], ["SEARCHBRIDGE_GSC_TOKEN"], [], [], [], "quota", "startRow/rowLimit", "rows[]", "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", "POST", [
 			operation("search-analytics", "search.performance", "search-performance", "POST", "https://www.googleapis.com/webmasters/v3/sites/{property}/searchAnalytics/query", "page-size", "/rows", ["property", "start_date", "end_date", "dimensions"]),
 			operation("inspect-url", "url.inspection", "inspect-url", "POST", "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect", "none", "/inspectionResult", ["property", "url"])
@@ -38,7 +41,7 @@ export func adapters() {
 		], true, 86400),
 		"dataforseo": adapter("dataforseo", "1.0.0", "v3", ["serp.results", "keyword.data", "rank.tracking"], ["SEARCHBRIDGE_DATAFORSEO_LOGIN", "SEARCHBRIDGE_DATAFORSEO_PASSWORD"], [], [], [], "metered", "async-task", "tasks[].result[].items[]", "https://api.dataforseo.com/v3/serp/google/organic/{strategy}", "POST", [
 			operation("google-organic-live", "serp.results", "fetch", "POST", "https://api.dataforseo.com/v3/serp/google/organic/live/advanced", "none", "/tasks/0/result/0/items", ["keyword", "location", "language", "device"]),
-			operation("google-organic-standard", "rank.tracking", "fetch", "POST", "https://api.dataforseo.com/v3/serp/google/organic/task_post", "async-task", "/tasks/0/result/0/items", ["keyword", "location", "language", "device"]),
+			{"id": "google-organic-standard", "capability": "rank.tracking", "class": "read", "compatibility_command": "fetch", "request": {"method": "POST", "endpoint_template": "https://api.dataforseo.com/v3/serp/google/organic/task_post", "result_endpoint_template": "https://api.dataforseo.com/v3/serp/google/organic/task_get/advanced/{task_id}", "allowed_query_fields": ["keyword", "location", "language", "device"], "redirects": "deny"}, "response": {"format": "json", "rows_pointer": "/tasks/0/result/0/items", "max_bytes": 8388608}, "pagination": {"strategy": "async-task"}, "normalization": {"row_contract": "rank.tracking/v1", "unknown_fields": "discard"}},
 			operation("keyword-search-volume", "keyword.data", "fetch", "POST", "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live", "none", "/tasks/0/result/0", ["keyword", "location", "language"])
 		], true, 86400),
 		"serpapi": adapter("serpapi", "1.0.0", "current", ["serp.results"], ["SEARCHBRIDGE_SERPAPI_KEY"], [], [], [], "metered", "page-size", "organic_results[]", "https://serpapi.com/search.json", "GET", [operation("google-organic", "serp.results", "fetch", "GET", "https://serpapi.com/search.json", "page-size", "/organic_results", ["keyword", "location", "language", "device"])], true, 86400),
@@ -51,6 +54,7 @@ export func adapters() {
 			operation("traffic-summary", "traffic.estimate", "fetch", "GET", "https://api.semrush.com/analytics/ta/api/v3/summary", "none", "/data", ["target", "country"])
 		], false, 2592000)
 	}
+	return REGISTRY_CACHE
 }
 
 export func provider_catalog() {

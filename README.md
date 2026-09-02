@@ -1,6 +1,6 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-0.3.0-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.4.0-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
@@ -11,14 +11,14 @@ providers. It preserves measurements and provenance without interpreting SEO
 performance, so CLIs, agents, CI jobs, and data pipelines can consume one
 stable contract without coupling themselves to every provider API.
 
-Version 0.3.0 is dependency-light: the application, provider adapters,
+Version 0.4.0 is dependency-light: the application, provider adapters,
 normalizers, test suite, contract gates, release metadata generator, and
 benchmark are written in Kujo. Portable POSIX and PowerShell launchers remain
 small operating-system integration boundaries.
 
 ## Quick start
 
-SearchBridge 0.3.0 requires the prepared Kujo v1.0.2 runtime at commit
+SearchBridge 0.4.0 requires the prepared Kujo v1.0.2 runtime at commit
 `3bc5b4f1634d9883a789a0c2a0e6a266f72b77b2`. CI pins that source commit until the release is explicitly
 authorized and published; after publication it will use the checksum-verified
 runtime archive. Then:
@@ -146,12 +146,16 @@ from config files; provider credentials remain environment-only.
 | Capability | Providers | Live credential |
 | --- | --- | --- |
 | `search.performance` | Google Search Console, Bing Webmaster | `SEARCHBRIDGE_GSC_TOKEN`, or `SEARCHBRIDGE_BING_TOKEN` / `SEARCHBRIDGE_BING_KEY` |
-| `analytics` | Google Analytics 4 | `SEARCHBRIDGE_GA4_TOKEN` |
+| `analytics` | Google Analytics 4; Plausible signed reference adapter | `SEARCHBRIDGE_GA4_TOKEN`; `SEARCHBRIDGE_PLAUSIBLE_TOKEN` |
 | `url.inspection` | Google Search Console | `SEARCHBRIDGE_GSC_TOKEN` |
 | `page.performance` | PageSpeed Insights | Optional `SEARCHBRIDGE_PAGESPEED_KEY` |
 | `field.performance` | Chrome UX Report | `SEARCHBRIDGE_CRUX_KEY` |
-| `backlinks` | Ahrefs, Bing Webmaster | `SEARCHBRIDGE_AHREFS_TOKEN`, or `SEARCHBRIDGE_BING_TOKEN` / `SEARCHBRIDGE_BING_KEY` |
-| `keyword.data` | Ahrefs | `SEARCHBRIDGE_AHREFS_TOKEN` |
+| `backlinks` | Ahrefs, Bing Webmaster; Semrush fixture support | Provider-specific environment credential |
+| `keyword.data` | Ahrefs, DataForSEO; Semrush fixture support | Provider-specific environment credential |
+| `serp.results` | DataForSEO, SerpApi | Provider-specific environment credential |
+| `rank.tracking` | DataForSEO; Semrush fixture support | Provider-specific environment credential |
+| `domain.visibility`, `traffic.estimate` | Semrush fixture support | Live support blocked pending commercial review |
+| `edge.analytics` | Cloudflare | `SEARCHBRIDGE_CLOUDFLARE_TOKEN`, `SEARCHBRIDGE_CLOUDFLARE_ZONE_ID` |
 | `index.submission` | IndexNow, Bing Webmaster | `SEARCHBRIDGE_INDEXNOW_KEY`, or `SEARCHBRIDGE_BING_TOKEN` / `SEARCHBRIDGE_BING_KEY` |
 
 `capabilities` reports each provider independently. A missing analytics token,
@@ -213,6 +217,9 @@ src/transport.kujo       bounded HTTP, retry, and redaction behavior
 src/cache.kujo           credential-independent cache/replay records
 src/config.kujo          non-secret TOML profiles and environment precedence
 src/adapters.kujo        signed third-party adapter loading and conformance
+src/registry.kujo        canonical adapter v2 discovery and routing registry
+src/provider_runtime.kujo batch-one provider normalization and execution
+src/protocols.kujo       cost, cursor, task, CSV, GraphQL, and endpoint bounds
 src/evidence.kujo        bounded streaming JSONL filters and joins
 src/telemetry.kujo       privacy-preserving opt-in OTLP traces and metrics
 src/core.kujo            contracts, catalog, fixtures, and URL safety
@@ -231,7 +238,7 @@ bash scripts/validate.sh
 "${KUJO_BIN:-../kujo/target/release/kujo}" run examples/ci_quality_gate.kujo
 ```
 
-The validation gate runs 169 native contract assertions, validates emitted
+The validation gate runs the native contract assertions, validates emitted
 documents and capability rows, proves every 0.2.x golden envelope remains
 readable, checks provider snapshots, executes CLI and benchmark smokes, rejects
 Python runtime dependencies, and checks the diff. CI builds the pinned Kujo

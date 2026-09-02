@@ -8,7 +8,15 @@ else if provider == "google-analytics-4" { command = "analytics"; tokens = conca
 else if provider == "pagespeed-insights" { command = "pagespeed"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL")]) }
 else if provider == "crux" { command = "crux"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL")]) }
 else if provider == "bing-webmaster" { command = "search-performance"; tokens = concat(tokens, ["--provider", "bing-webmaster", "--property", env("SEARCHBRIDGE_BING_PROPERTY")]) }
-else if provider == "ahrefs" { command = "backlinks"; tokens = concat(tokens, ["--provider", "ahrefs", "--target", env("SEARCHBRIDGE_AHREFS_TARGET")]) }
+else if provider == "ahrefs" {
+	if env("SEARCHBRIDGE_ENABLE_PAID_LIVE") != "true" { print(to_json({"schema": "searchbridge.live-contract-evidence/v1", "provider": provider, "status": "external-blocked", "reason": "paid live probe not explicitly enabled"})); exit(0) }
+	command = "backlinks"; tokens = concat(tokens, ["--provider", "ahrefs", "--target", env("SEARCHBRIDGE_AHREFS_TARGET"), "--allow-paid", "--max-calls", "1", "--max-provider-units", "1"])
+}
+else if provider == "dataforseo" || provider == "serpapi" {
+	if env("SEARCHBRIDGE_ENABLE_PAID_LIVE") != "true" { print(to_json({"schema": "searchbridge.live-contract-evidence/v1", "provider": provider, "status": "external-blocked", "reason": "paid live probe not explicitly enabled"})); exit(0) }
+	command = "fetch"; tokens = concat(tokens, ["--capability", "serp.results", "--provider", provider, "--keyword", "kujo language", "--location", "United States", "--language", "en", "--device", "desktop", "--allow-paid", "--max-calls", "1", "--max-provider-units", "1"])
+}
+else if provider == "cloudflare" { command = "fetch"; tokens = concat(tokens, ["--capability", "edge.analytics", "--provider", "cloudflare", "--start-date", env("SEARCHBRIDGE_TEST_START_DATE"), "--end-date", env("SEARCHBRIDGE_TEST_END_DATE"), "--max-calls", "1"] ) }
 else { eprint("unsupported live contract provider"); exit(2) }
 prepared := prepare_options(command, tokens); if !prepared["ok"] { eprint(clean_error(prepared["error"])); exit(1) }
 result := dispatch(command, prepared["value"]); if !result["ok"] { eprint(clean_error(result["error"])); exit(1) }

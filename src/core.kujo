@@ -1,7 +1,7 @@
 # SearchBridge shared contracts, provider catalog, normalization, and safety helpers.
 from src.registry import provider_catalog
 
-export VERSION := "0.3.0"
+export VERSION := "0.4.0"
 export RESULT_SCHEMA := "searchbridge.result/v1"
 export SUBMISSION_SCHEMA := "searchbridge.submission/v1"
 export DETERMINISTIC_TIME := "1970-01-01T00:00:00Z"
@@ -42,6 +42,14 @@ export func utf8_size(text) {
 	if ends_with(encoded, "==") { padding = 2 }
 	else if ends_with(encoded, "=") { padding = 1 }
 	return to_int((len(encoded) / 4) * 3) - padding
+}
+
+export func value_within_bounds(value, depth) {
+	if depth > 20 { return false }
+	if type(value) == "string" { return utf8_size(value) <= 1048576 }
+	if type(value) == "array" { if len(value) > 100000 { return false }; for item in value { if !value_within_bounds(item, depth + 1) { return false } } }
+	if type(value) == "dict" { if len(keys(value)) > 10000 { return false }; for key in keys(value) { if len(key) > 1024 || !value_within_bounds(value[key], depth + 1) { return false } } }
+	return true
 }
 
 export func failure(message) { return {"ok": false, "error": clean_error(message)} }

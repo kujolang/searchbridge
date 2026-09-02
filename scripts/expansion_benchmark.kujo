@@ -12,8 +12,7 @@ routing_started := performance_now(); i = 0
 while i < 100 { resolve("serp.results", "serpapi", [], []); resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"]); resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"]); i = i + 1 }
 routing_ms := performance_now() - routing_started
 
-mut csv := "keyword;volume\n"; i = 0
-while i < row_count { csv = csv + "keyword-" + to_string(i) + ";" + to_string(i) + "\n"; i = i + 1 }
+csv := "keyword;volume\n" + repeat("keyword;1\n", row_count)
 csv_started := performance_now(); csv_result := bounded_csv_parse(csv, row_count, 8, 256); mut csv_ms := performance_now() - csv_started; if csv_ms <= 0 { csv_ms = 0.001 }
 if !csv_result["ok"] { eprint(csv_result["error"]); exit(1) }
 

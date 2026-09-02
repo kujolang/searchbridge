@@ -1,4 +1,4 @@
-from src.core import MAX_PROVIDER_BYTES, clean_error, failure, success, dict_get, utf8_size, includes
+from src.core import MAX_PROVIDER_BYTES, clean_error, failure, success, dict_get, utf8_size, includes, value_within_bounds
 from src.cache import credential_independent_request_hash, read_protected_cached_response, write_protected_cached_response
 
 export func should_retry_status(status) {
@@ -37,7 +37,8 @@ func safe_cost(headers) {
 
 export func request_json(url, method, body, headers, policy, transport) {
 	if dict_get(policy, "offline", false) && !dict_get(policy, "replay", false) { return failure("offline mode blocks live provider requests") }
-	request_hash := credential_independent_request_hash(method, url, body)
+	bound_request := {"body": body, "provider": dict_get(policy, "provider", ""), "adapter_version": dict_get(policy, "adapter_version", ""), "capability": dict_get(policy, "current_capability", ""), "profile": dict_get(policy, "profile", "")}
+	request_hash := credential_independent_request_hash(method, url, bound_request)
 	cache_dir := dict_get(policy, "cache_dir", "")
 	capability := dict_get(policy, "current_capability", "")
 	mut allowed_replays := dict_get(policy, "replay_capabilities", [])
@@ -55,7 +56,7 @@ export func request_json(url, method, body, headers, policy, transport) {
 	mut merged := {"User-Agent": dict_get(policy, "user_agent", "Kujo-SearchBridge"), "Accept": "application/json"}
 	for key in keys(headers) { merged[key] := headers[key] }
 	if type(body) != "null" { merged["Content-Type"] := "application/json" }
-	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30)}
+	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "destination_policy": "deny_private", "pin_dns": true, "max_response_bytes": MAX_PROVIDER_BYTES}
 	if type(body) != "null" { request_options["body"] := to_json(body) }
 	mut call_transport := transport; if type(call_transport) == "null" { call_transport = default_transport }
 	mut attempt := 0
@@ -78,7 +79,7 @@ export func request_json(url, method, body, headers, policy, transport) {
 				if status >= 200 && status < 300 {
 					mut payload := raw; if payload == "" { payload = "{}" }
 					try {
-						parsed := parse_json(payload); response_headers := dict_get(response, "_headers", dict_get(response, "headers", {}))
+						parsed := parse_json(payload); if !value_within_bounds(parsed, 0) { return failure("provider JSON structure exceeded safety bounds") }; response_headers := dict_get(response, "_headers", dict_get(response, "headers", {}))
 						mut cache_status := "disabled"; if cache_dir != "" { written := write_protected_cached_response(cache_dir, request_hash, status, parsed, current_timestamp(), now_utc(), backend); if !written["ok"] { return written }; cache_status = "miss-written" }
 						return success({"status": status, "body": parsed, "telemetry": {"attempts": attempt + 1, "retries": attempt, "latency_ms": current_timestamp() - started, "retry_delay_ms": total_delay, "response_bytes": utf8_size(payload), "cache_status": cache_status, "provider_cost": safe_cost(response_headers)}})
 					} except parse_error { return failure("provider returned invalid JSON") }
@@ -124,4 +125,9 @@ export func ga_page_contract_transport(_url, request_options) {
 	mut rows := [{"dimensionValues": [{"value": "2026-08-01"}], "metricValues": [{"value": "1"}]}]
 	if offset == 0 { rows = push(rows, {"dimensionValues": [{"value": "2026-08-02"}], "metricValues": [{"value": "2"}]}) }
 	return Ok({"_status": 200, "_body": to_json({"dimensionHeaders": [{"name": "date"}], "metricHeaders": [{"name": "sessions"}], "rows": rows})})
+}
+
+export func dataforseo_task_contract_transport(url, _request_options) {
+	if ends_with(url, "/task_post") { return Ok({"_status": 200, "_body": to_json({"tasks": [{"id": "synthetic-task"}]})}) }
+	return Ok({"_status": 200, "_body": to_json({"tasks": [{"id": "synthetic-task", "result": [{"keyword": "kujo language", "items": [{"type": "organic", "rank_absolute": 4, "rank_group": 1, "url": "https://example.com/kujo"}]}]}]})})
 }

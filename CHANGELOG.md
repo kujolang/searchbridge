@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-09-02
+
+- Added one canonical adapter v2 registry for built-in discovery, compatibility commands, semantic routing, and signed external packages.
+- Added `fetch` with explicit, configured `auto`, and intact multi-provider `all` results without silent fallback.
+- Added DataForSEO, SerpApi, Cloudflare, selected Semrush fixture support, and the signed Plausible reference adapter.
+- Added six capability row contracts, provider-qualified metric observations, multi-result contracts, and regenerated TypeScript, Rust, and Go consumers.
+- Added paid-call preflight, call/unit/poll/elapsed/cursor/retention bounds, fixed GraphQL, bounded CSV, endpoint validation, expanded redaction, and package digest verification.
+- Added concise agent/MCP tool metadata, provider snapshots, drift/live probes, and 100,000-row atomic streaming benchmarks.
+
 ## 0.3.0 — 2026-08-12
 
 - Added a true bounded Kujo worker pool for overlapping independent batch reads with stable ordering, cooperative cancellation, and partial-success records.

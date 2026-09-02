@@ -1,4 +1,4 @@
-from src.core import dict_get, failure, success, providers, query_encode
+from src.core import VERSION, dict_get, failure, success, providers, query_encode
 from src.registry import adapters
 from src.transport import request_json
 from src.protocols import validate_exact_endpoint
@@ -32,6 +32,7 @@ export func validate_adapter_v2(adapter) {
 	for field in ["contract", "id", "adapter_version", "provider_api_version", "minimum_searchbridge_version", "capabilities", "operations", "credentials", "cost_class", "fixtures", "publisher", "signature"] { if has_key(adapter, field) == 0 { errors = push(errors, "missing " + field) } }
 	if dict_get(adapter, "contract", "") != "searchbridge-adapter/v2" { errors = push(errors, "unsupported adapter contract") }
 	if !regex_match(dict_get(adapter, "id", ""), "^[a-z][a-z0-9-]*$") { errors = push(errors, "invalid adapter id") }
+	if !regex_match(dict_get(adapter, "adapter_version", ""), "^[0-9]+\\.[0-9]+\\.[0-9]+$") || dict_get(adapter, "minimum_searchbridge_version", "") != "0.4.0" { errors = push(errors, "unknown adapter or minimum runtime version") }
 	if !allowed(["free", "quota", "metered", "expensive", "unknown"], dict_get(adapter, "cost_class", "")) { errors = push(errors, "unknown cost class") }
 	for credential in dict_get(adapter, "credentials", []) {
 		if !allowed(["none", "bearer", "header", "basic", "query", "body"], dict_get(credential, "mode", "")) { errors = push(errors, "unknown credential mode") }
@@ -48,6 +49,7 @@ export func validate_adapter_v2(adapter) {
 		if !starts_with(endpoint, "https://") || contains(endpoint, "@") || contains(endpoint, "#") { errors = push(errors, "operation endpoint must be an exact safe HTTPS template") }
 		if dict_get(request, "redirects", "") != "deny" { errors = push(errors, "external adapter redirects must be denied") }
 	}
+	signature := dict_get(adapter, "signature", {}); if dict_get(signature, "algorithm", "") != "rsa-sha256" || dict_get(signature, "canonicalization", "") != "jcs" { errors = push(errors, "unknown signature algorithm or canonicalization") }
 	if len(errors) == 0 { schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest-v2.schema.json"))); if !schema_check["valid"] { errors = push(errors, "adapter manifest does not satisfy v2 schema") } }
 	return {"ok": len(errors) == 0, "errors": errors}
 }
@@ -62,6 +64,7 @@ export func load_signed_adapter_v2(manifest_path, signature_path, key_environmen
 		if canonical_json(adapter) != trim(manifest_text) { return failure("adapter manifest is not canonical JSON") }
 		if rsa_verify(manifest_text, trim(read_file(signature_path)), key) != true { return failure("adapter package RSA-SHA256 signature verification failed") }
 		checked := validate_adapter_v2(adapter); if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
+		expected_fingerprint := dict_get(dict_get(adapter, "publisher", {}), "key_fingerprint", ""); if expected_fingerprint != "sha256:" + sha256(trim(key)) { return failure("adapter publisher trust-key fingerprint mismatch") }
 		base := dirname(manifest_path)
 		for file in dict_get(adapter, "package_files", []) {
 			relative := dict_get(file, "path", ""); if !safe_package_path(relative) { return failure("unsafe adapter package path") }
@@ -128,7 +131,7 @@ func external_v2_operation(adapter, capability) { for operation in adapter["oper
 func run_signed_adapter_v2(adapter, options) {
 	capability := options["capability"]; operation := external_v2_operation(adapter, capability)
 	if type(operation) == "null" { return failure("adapter does not implement requested capability") }
-	retention_cap := dict_get(dict_get(adapter, "retention", {}), "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("adapter retention policy caps cache age") }
+	options["provider"] = adapter["id"]; options["adapter_version"] = adapter["adapter_version"]; retention_cap := dict_get(dict_get(adapter, "retention", {}), "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("adapter retention policy caps cache age") }
 	mut raw_result := null; base := dirname(options["adapter_manifest"])
 	if options["fixture"] {
 		fixture_path := path_join(base, operation["fixture"]); raw_result = success({"body": parse_json(read_file(fixture_path)), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})

@@ -22,7 +22,9 @@ jobs:
       - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
       - id: contract
         continue-on-error: true
-        run: .runtime/kujo/target/release/kujo run scripts/provider_contract_gate.kujo
+        run: |
+          .runtime/kujo/target/release/kujo run scripts/provider_contract_gate.kujo
+          .runtime/kujo/target/release/kujo run scripts/provider_snapshot_gate.kujo
       - name: Open review issue on drift
         if: steps.contract.outcome == 'failure'
         env:

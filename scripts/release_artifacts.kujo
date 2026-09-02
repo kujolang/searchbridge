@@ -1,9 +1,12 @@
 from src.core import VERSION, now_text
 
-files := []
-for directory in ["src", "schemas", "fixtures", "examples", "docs", "scripts"] {
-	for name in list_dir(directory) { if !path_is_dir(path_join(directory, name)) { files = push(files, path_join(directory, name)) } }
+func collect(directory) {
+	mut files := []
+	for name in list_dir(directory) { path := path_join(directory, name); if path_is_dir(path) { files = concat(files, collect(path)) } else { files = push(files, path) } }
+	return files
 }
+mut files := []
+for directory in ["src", "schemas", "fixtures", "examples", "docs", "scripts", "adapters", "integrations"] { files = concat(files, collect(directory)) }
 mut packages := []
 for path in sort(files) { packages = push(packages, {"SPDXID": "SPDXRef-" + substring(sha256(path), 0, 12), "name": path, "checksums": [{"algorithm": "SHA256", "checksumValue": sha256_file(path)}]}) }
 sbom := {"spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0", "SPDXID": "SPDXRef-DOCUMENT", "name": "searchbridge-" + VERSION, "documentNamespace": "https://github.com/kujolang/searchbridge/releases/" + VERSION, "creationInfo": {"created": now_text(false), "creators": ["Tool: SearchBridge Kujo release_artifacts.kujo"]}, "files": packages}

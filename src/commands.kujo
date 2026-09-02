@@ -1,6 +1,7 @@
 from src.core import VERSION, RESULT_SCHEMA, SUBMISSION_SCHEMA, providers, includes, now_text, failure, success, fixture, envelope, capability_report, csv_values, take, query_encode, validate_submission_urls, normalize_submission_url, normalize_gsc, normalize_analytics, dict_get, utf8_size
 from src.transport import request_json
 from src.registry import agent_catalog
+from src.protocols import cost_preflight
 
 func mode(options) { if options["fixture"] { return "fixture" }; return "live" }
 
@@ -238,6 +239,7 @@ export func command_backlinks(options) {
 	provider := options["provider"]
 	mut raw_result := null
 	if provider == "ahrefs" {
+		preflight := cost_preflight("metered", options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
 		if options["fixture"] { raw_result = fixture("ahrefs-backlinks") }
 		else {
 			token := env("SEARCHBRIDGE_AHREFS_TOKEN"); if token == "" { return failure("unavailable capability: set SEARCHBRIDGE_AHREFS_TOKEN or use --fixture") }
@@ -267,6 +269,7 @@ export func command_keywords(options) {
 	mut keyword := options["keyword"]; if keyword == "" { keyword = "example keyword" }
 	if len(keyword) > 10000 || !regex_match(options["country"], "^[A-Za-z]{2}$") { return failure("keyword must be at most 10,000 characters and country must be a two-letter code") }
 	mut raw_result := null
+	preflight := cost_preflight("metered", options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
 	if options["fixture"] { raw_result = fixture("ahrefs-keywords") }
 	else {
 		token := env("SEARCHBRIDGE_AHREFS_TOKEN"); if token == "" { return failure("unavailable capability: set SEARCHBRIDGE_AHREFS_TOKEN or use --fixture") }

@@ -36,10 +36,16 @@ jobs:
           SEARCHBRIDGE_TEST_URL: ${{ vars.SEARCHBRIDGE_TEST_URL }}
           SEARCHBRIDGE_TEST_START_DATE: ${{ vars.SEARCHBRIDGE_TEST_START_DATE }}
           SEARCHBRIDGE_TEST_END_DATE: ${{ vars.SEARCHBRIDGE_TEST_END_DATE }}
+          SEARCHBRIDGE_DATAFORSEO_LOGIN: ${{ secrets.SEARCHBRIDGE_DATAFORSEO_LOGIN }}
+          SEARCHBRIDGE_DATAFORSEO_PASSWORD: ${{ secrets.SEARCHBRIDGE_DATAFORSEO_PASSWORD }}
+          SEARCHBRIDGE_SERPAPI_KEY: ${{ secrets.SEARCHBRIDGE_SERPAPI_KEY }}
+          SEARCHBRIDGE_CLOUDFLARE_TOKEN: ${{ secrets.SEARCHBRIDGE_CLOUDFLARE_TOKEN }}
+          SEARCHBRIDGE_CLOUDFLARE_ZONE_ID: ${{ secrets.SEARCHBRIDGE_CLOUDFLARE_ZONE_ID }}
+          SEARCHBRIDGE_ENABLE_PAID_LIVE: ${{ vars.SEARCHBRIDGE_ENABLE_PAID_LIVE }}
         run: |
           set -euo pipefail
           : > live-contract-evidence.jsonl
-          for provider in google-search-console google-analytics-4 pagespeed-insights crux bing-webmaster ahrefs; do
+          for provider in google-search-console google-analytics-4 pagespeed-insights crux bing-webmaster ahrefs dataforseo serpapi cloudflare; do
             "$KUJO_BIN" run scripts/live_contract.kujo -- "$provider" >> live-contract-evidence.jsonl
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -147,7 +147,7 @@ export func dispatch(command, options) {
 	if command == "fetch" { return command_fetch(options) }
 	if includes(["doctor", "capabilities", "providers", "agent-catalog", "version"], command) { return static_command(command, options["deterministic"]) }
 	options["current_capability"] := command_capability(command)
-	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered } }
+	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered }; options["adapter_version"] = adapters()[options["provider"]]["adapter_version"] }
 	if command == "search-performance" { return command_search_performance(options) }
 	if command == "analytics" { return command_analytics(options) }
 	if command == "inspect-url" { return command_inspect(options) }

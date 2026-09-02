@@ -1,0 +1,11 @@
+from src.registry import adapters
+
+snapshot := parse_json(read_file("fixtures/provider-snapshots.json")); if snapshot["schema"] != "searchbridge.provider-snapshots/v2" { eprint("invalid provider snapshot schema"); exit(1) }
+registry := adapters(); if sort(keys(snapshot["providers"])) != sort(keys(registry)) { eprint("provider snapshot registry drift"); exit(1) }
+for provider in keys(snapshot["providers"]) {
+	item := snapshot["providers"][provider]
+	for field in ["documentation_url", "api_version", "auth", "format", "pagination", "fixture_hashes"] { if has_key(item, field) == 0 { eprint(provider + " snapshot missing " + field); exit(1) } }
+	if item["api_version"] != registry[provider]["provider_api_version"] || item["pagination"] != registry[provider]["request_contract"]["pagination"] { eprint(provider + " snapshot metadata drift"); exit(1) }
+	for name in keys(item["fixture_hashes"]) { path := "fixtures/providers/" + name; if !path_is_file(path) || sha256_file(path) != item["fixture_hashes"][name] { eprint(provider + " fixture hash drift: " + name); exit(1) } }
+}
+print("Provider version, auth, format, pagination, documentation, and fixture hashes match snapshots.")

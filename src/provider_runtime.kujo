@@ -1,7 +1,7 @@
 from src.core import failure, success, fixture, envelope, dict_get, take, query_encode, now_text, includes
 from src.registry import adapters, operation_for
 from src.transport import request_json
-from src.protocols import cost_preflight, graphql_result, validate_exact_endpoint
+from src.protocols import cost_preflight, graphql_result, validate_exact_endpoint, validate_template_endpoint
 
 func run_mode(options) { if options["fixture"] { return "fixture" }; return "live" }
 func locale(options) { mut value := options["language"]; if value == "" { value = "en" }; return value + "-" + to_upper(options["country"]) }
@@ -91,8 +91,20 @@ func live_request(provider, capability, options) {
 		mut endpoint := "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"; mut body := [{"keyword": keyword(options), "location_name": options["location"], "language_code": options["language"], "device": device(options)}]
 		if capability == "rank.tracking" { endpoint = "https://api.dataforseo.com/v3/serp/google/organic/task_post" }
 		if capability == "keyword.data" { endpoint = "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"; body = [{"keywords": [keyword(options)], "location_name": options["location"], "language_code": options["language"]}] }
-		approved := operation_for(provider, capability)["value"]["request"]["endpoint_template"]; checked_endpoint := validate_exact_endpoint(endpoint, approved, false); if !checked_endpoint["ok"] { return checked_endpoint }
-		return request_json(endpoint, "POST", body, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, options, options["transport"])
+		op := operation_for(provider, capability)["value"]; approved := op["request"]["endpoint_template"]; checked_endpoint := validate_exact_endpoint(endpoint, approved, false); if !checked_endpoint["ok"] { return checked_endpoint }
+		mut request_options := {}; for key in keys(options) { request_options[key] := options[key] }; request_options["retries"] = 0; request_options["max_calls"] = 1
+		posted := request_json(endpoint, "POST", body, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, request_options, options["transport"])
+		if capability != "rank.tracking" || !posted["ok"] { return posted }
+		tasks := dict_get(posted["value"]["body"], "tasks", []); if len(tasks) == 0 { return failure("DataForSEO task response omitted a task") }; task_id := dict_get(tasks[0], "id", "")
+		if !regex_match(task_id, "^[A-Za-z0-9._:-]{1,256}$") { return failure("invalid provider task id") }
+		mut calls := 1; mut polls := 0; started := current_timestamp(); result_template := op["request"]["result_endpoint_template"]; base := replace(result_template, "{task_id}", "")
+		while calls < options["max_calls"] && polls < options["max_polls"] && current_timestamp() - started <= options["max_elapsed_ms"] {
+			result_endpoint := base + task_id; checked_result_endpoint := validate_template_endpoint(result_endpoint, result_template, "{task_id}", task_id); if !checked_result_endpoint["ok"] { return checked_result_endpoint }
+			polled := request_json(result_endpoint, "GET", null, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, request_options, options["transport"]); calls = calls + 1; polls = polls + 1
+			if !polled["ok"] { return polled }; if len(dfs_items(polled["value"]["body"])) > 0 { telemetry := polled["value"]["telemetry"]; telemetry["task_polls"] := polls; telemetry["attempts"] = calls; mut polled_value := polled["value"]; polled_value["telemetry"] = telemetry; return success(polled_value) }
+			sleep(250)
+		}
+		return failure("DataForSEO task polling budget exceeded")
 	}
 	if provider == "serpapi" {
 		key := env("SEARCHBRIDGE_SERPAPI_KEY"); if key == "" { return failure("SerpApi credential is unavailable") }
@@ -107,12 +119,12 @@ func live_request(provider, capability, options) {
 
 export func execute_new_provider(provider, capability, options, routing) {
 	registry := adapters(); if has_key(registry, provider) == 0 { return failure("provider is not registered") }
-	a := registry[provider]; retention := dict_get(a, "retention", {}); retention_cap := dict_get(retention, "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("provider retention policy caps cache age at " + to_string(retention_cap) + " seconds") }; preflight := cost_preflight(a["cost_class"], options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
+	a := registry[provider]; options["adapter_version"] = a["adapter_version"]; retention := dict_get(a, "retention", {}); retention_cap := dict_get(retention, "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("provider retention policy caps cache age at " + to_string(retention_cap) + " seconds") }; preflight := cost_preflight(a["cost_class"], options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }; if !options["fixture"] && provider == "dataforseo" && capability == "rank.tracking" && options["max_calls"] < 2 { return failure("DataForSEO standard task flow requires a call budget of at least two") }
 	op_result := operation_for(provider, capability); if !op_result["ok"] { return op_result }; operation := op_result["value"]
 	mut raw_result := null
 	if options["fixture"] { loaded := fixture(fixture_name(provider, capability)); if !loaded["ok"] { return loaded }; raw_result = success({"body": loaded["value"], "telemetry": {"attempts": 0, "retries": 0, "retry_delay_ms": 0, "latency_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}}) }
 	else { raw_result = live_request(provider, capability, options) }
-	if !raw_result["ok"] { return raw_result }; raw := raw_result["value"]["body"]; mut rows := []
+	if !raw_result["ok"] { return raw_result }; actual_cost := dict_get(dict_get(raw_result["value"]["telemetry"], "provider_cost", {}), "cost", ""); if !options["fixture"] && actual_cost != "" && to_float(actual_cost) > options["max_provider_units"] { return failure("actual provider units exceeded the declared budget") }; raw := raw_result["value"]["body"]; mut rows := []
 	if capability == "serp.results" { rows = normalize_serp(provider, raw, options) }
 	else if capability == "rank.tracking" { rows = normalize_rank(provider, raw, options) }
 	else if capability == "keyword.data" { rows = normalize_keywords(provider, raw, options) }

@@ -12,6 +12,7 @@ while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.ku
 "$KUJO_RUNTIME" run scripts/validate_document.kujo -- kujo.toml
 "$KUJO_RUNTIME" run scripts/compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_contract_gate.kujo
+"$KUJO_RUNTIME" run scripts/provider_snapshot_gate.kujo
 "$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo
 "$KUJO_RUNTIME" run scripts/sdk_compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null
