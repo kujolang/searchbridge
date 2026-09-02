@@ -1,6 +1,6 @@
 from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_probe, result_exit_code
-from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode, query_fingerprint, value_within_bounds
-from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport
+from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode, query_fingerprint, value_within_bounds, dict_get
+from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, circuit_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, read_protected_cached_response
 from src.adapters import validate_adapter, validate_adapter_v2, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter, external_pagination_contract_probe
 from src.commands import pagination_contract_probe
@@ -260,6 +260,8 @@ body_hash_a := credential_independent_request_hash("POST", "https://example.com/
 check(body_hash_a == body_hash_b, "query and body password credentials are absent from cache fingerprints")
 call_budget_probe := call_budget_contract_probe()
 check(!call_budget_probe["limited"]["ok"] && call_budget_probe["sufficient"]["ok"] && call_budget_probe["sufficient"]["value"]["telemetry"]["attempts"] == 2, "retry amplification is included in the call budget")
+circuit_probe := circuit_contract_probe(); check(!circuit_probe["excluded"]["ok"] && contains(circuit_probe["excluded"]["error"], "HTTP 500") == 1 && !circuit_probe["opened"]["ok"] && contains(circuit_probe["opened"]["error"], "circuit opened") == 1 && contains(circuit_probe["opened"]["error"], "never-log-this") == 0, "operation retry allowlists and circuit thresholds fail closed")
+mut reliability_complete := true; for provider_id in keys(adapters()) { for declared_operation in adapters()[provider_id]["operations"] { policy := dict_get(declared_operation, "reliability", {}); if has_key(policy, "max_retries") == 0 || has_key(policy, "retry_statuses") == 0 || has_key(policy, "circuit_failure_threshold") == 0 { reliability_complete = false }; if declared_operation["class"] == "write" && policy["max_retries"] != 0 { reliability_complete = false }; if declared_operation["pagination"]["strategy"] == "async-task" && policy["max_retries"] != 0 { reliability_complete = false } } }; check(reliability_complete, "every operation declares bounded retry and circuit policy with no unsafe task/write replay")
 check(query_encode("café & 東京/💡") == "caf%C3%A9%20%26%20%E6%9D%B1%E4%BA%AC%2F%F0%9F%92%A1", "RFC 3986 encoder handles UTF-8 and reserved characters")
 
 # Parser rejects ambiguous or invalid input.

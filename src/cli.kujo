@@ -11,6 +11,7 @@ func bool_flags() { return ["fixture", "offline", "replay", "deterministic", "ac
 func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field"] }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
+func apply_reliability(options, operation) { policy := dict_get(operation, "reliability", {}); max_retries := dict_get(policy, "max_retries", options["retries"]); if options["retries"] > max_retries { options["retries"] = max_retries }; options["retry_statuses"] = dict_get(policy, "retry_statuses", [429, 500, 502, 503, 504]); options["retry_delay_cap_ms"] = dict_get(policy, "retry_delay_cap_ms", 5000); options["circuit_failure_threshold"] = dict_get(policy, "circuit_failure_threshold", 3); return options }
 func commands() { return ["doctor", "capabilities", "providers", "agent-catalog", "version", "adapter-conformance", "adapter-run", "evidence-query", "batch", "fetch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
 
 func default_options() {
@@ -165,7 +166,7 @@ export func dispatch(command, options) {
 	if command == "fetch" { return finalize_result(command, options, command_fetch(options)) }
 	if includes(["doctor", "capabilities", "providers", "agent-catalog", "version"], command) { return static_command(command, options["deterministic"]) }
 	options["current_capability"] := command_capability(command)
-	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered }; options["adapter_version"] = adapters()[options["provider"]]["adapter_version"] }
+	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered }; options["adapter_version"] = adapters()[options["provider"]]["adapter_version"]; options = apply_reliability(options, registered["value"]) }
 	if command == "search-performance" { return finalize_result(command, options, command_search_performance(options)) }
 	if command == "analytics" { return finalize_result(command, options, command_analytics(options)) }
 	if command == "inspect-url" { return finalize_result(command, options, command_inspect(options)) }
@@ -191,6 +192,7 @@ func add_fetch_metadata(value, provider, capability, routing, options) {
 
 func fetch_one(provider, capability, options, routing) {
 	options["provider"] = provider; options["current_capability"] = capability
+	registered := operation_for(provider, capability); if registered["ok"] { options = apply_reliability(options, registered["value"]) }
 	if includes(["dataforseo", "serpapi", "cloudflare", "semrush"], provider) { return execute_new_provider(provider, capability, options, routing) }
 	mut result := null
 	if capability == "search.performance" { result = command_search_performance(options) }

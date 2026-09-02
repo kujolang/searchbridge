@@ -20,6 +20,7 @@ SearchBridge is a provider gateway, not a credential broker or sandbox.
 - Fixed final endpoints reject user-info, fragments, private/local destinations, prefix lookalikes, and redirects. Cloudflare accepts variables for one reviewed GraphQL operation, never operator-supplied GraphQL.
 - Basic, bearer, header, query, and body credential shapes are removed from errors, request fingerprints, cache keys, and telemetry. Evidence rows remain intact and are never copied into telemetry.
 - Cursor repetition, async task IDs, polling time, retry amplification, CSV size/columns/cells, provider response bytes, and cache retention are bounded. Semrush cache/replay age cannot exceed one month.
+- Each operation declares its retryable statuses, retry cap, delay cap, and circuit threshold. Task creation and write operations never retry automatically.
 - SearchBridge does not refresh OAuth tokens, open browsers, store credentials, or claim that an accepted URL was indexed.
 
 Provider properties, URLs, query rows, and analytics measurements may be
