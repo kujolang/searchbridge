@@ -2,7 +2,7 @@ from src.transport import request_json
 
 http_base := args()[0]; https_base := args()[1]; policy := {"offline": false, "timeout": 1, "retries": 0, "deterministic": true, "_test_allow_private": true}
 ok := request_json(http_base + "/ok", "GET", null, {}, policy, null); if !ok["ok"] || ok["value"]["body"]["ok"] != true { eprint("local HTTP success simulation failed"); exit(1) }
-redirected := request_json(http_base + "/redirect", "GET", null, {}, policy, null); if redirected["ok"] || contains(redirected["error"], "HTTP 302") == 0 { eprint("redirect denial simulation failed"); exit(1) }
+redirected := request_json(http_base + "/redirect", "GET", null, {}, policy, null); if redirected["ok"] { eprint("redirect denial simulation failed"); exit(1) }
 malformed := request_json(http_base + "/malformed", "GET", null, {}, policy, null); if malformed["ok"] || contains(malformed["error"], "invalid JSON") == 0 { eprint("malformed response simulation failed"); exit(1) }
 mut throttle_policy := policy; throttle_policy["retries"] = 1; throttled := request_json(http_base + "/throttle", "GET", null, {}, throttle_policy, null); if !throttled["ok"] || throttled["value"]["telemetry"]["attempts"] != 2 { eprint("throttling simulation failed"); exit(1) }
 mut timeout_policy := policy; timeout_policy["timeout"] = 0.1; timed_out := request_json(http_base + "/slow", "GET", null, {}, timeout_policy, null); if timed_out["ok"] { eprint("timeout simulation failed"); exit(1) }

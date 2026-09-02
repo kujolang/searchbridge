@@ -65,7 +65,7 @@ provider behavior, not discover missing core architecture.
   streaming readers, validation helpers, examples, checksums, and provenance.
 - [ ] Build reproducible, checksum-verified runtime bundles for every supported
   platform and test clean/offline installation.
-- [ ] Publish agent, CI, replay, join, external-adapter, upgrade, rollback,
+- [x] Publish agent, CI, replay, join, external-adapter, upgrade, rollback,
   recovery, and provider-outage guidance.
 
 ## 6. Repository and release governance

@@ -27,6 +27,8 @@
 - Added a runnable dependency-free stdio MCP server generated from the agent catalog with fail-closed submission confirmation.
 - Upgraded the TypeScript, Rust, and Go contract types into packageable local CLI SDKs with typed errors, validators, JSONL readers, and examples.
 - Added deterministic self-contained runtime bundles and clean, network-free installation smoke tests across supported CI platforms.
+- Added an operator runbook for agent/CI rollout, replay, joins, external adapters, upgrades, rollback, recovery, and provider outages.
+- Made the redirect-denial qualification portable across Kujo transport backends without depending on backend-specific error text.
 
 ## 0.3.0 — 2026-08-12
 
