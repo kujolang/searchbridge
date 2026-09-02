@@ -17,7 +17,22 @@ packages participate in semantic fetch only through an explicit provider ID;
 external `auto` and `all` discovery remain disabled until a trusted installation
 registry exists.
 
-The manifest must be canonical JSON and satisfy `schemas/adapter-manifest-v2.schema.json`. Its detached RSA-SHA256 signature covers the canonical manifest bytes. The manifest binds every auxiliary file by SHA-256, so fixture or mapping tampering fails before credentials are read. Trust uses the publisher public-key fingerprint; the display name is not an identity claim.
+The manifest must use `searchbridge-canonical-json/v1` and satisfy
+`schemas/adapter-manifest-v2.schema.json`. This is intentionally not labeled RFC
+8785 JCS: it recursively sorts object keys, removes insignificant whitespace,
+preserves array order, and delegates scalar/string serialization to the pinned
+Kujo runtime. Its detached RSA-SHA256 signature covers those exact UTF-8 bytes.
+The manifest binds every auxiliary file by SHA-256, so fixture or mapping
+tampering fails before credentials are read. Trust uses the publisher public-key
+fingerprint; the display name is not an identity claim.
+
+`--adapter-key-env` accepts a comma-separated set of public-key environment
+variables during a planned rotation. The manifest fingerprint must match one of
+them. `SEARCHBRIDGE_ADAPTER_REVOKED_FINGERPRINTS` is a comma-separated emergency
+denylist applied before signature verification; a revoked publisher key fails
+closed even if it remains in the trust set. Rotate by adding the new public key,
+re-signing packages with the new fingerprint, then removing or revoking the old
+fingerprint after the overlap window.
 
 Adapters declare an inclusive `minimum_searchbridge_version` and may declare
 an inclusive `maximum_searchbridge_version`. The runtime accepts only valid

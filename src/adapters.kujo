@@ -76,7 +76,7 @@ export func validate_adapter_v2(adapter) {
 		}
 		deprecation := dict_get(operation, "deprecation", {}); if len(keys(deprecation)) > 0 { removal := dict_get(deprecation, "removal_version", ""); if dict_get(deprecation, "status", "") != "deprecated" || dict_get(deprecation, "replacement", "") == "" || type(semver_compare(removal, VERSION)) == "null" || semver_compare(removal, VERSION) <= 0 { errors = push(errors, "operation deprecation metadata is incomplete or already expired") } }
 	}
-	signature := dict_get(adapter, "signature", {}); if dict_get(signature, "algorithm", "") != "rsa-sha256" || dict_get(signature, "canonicalization", "") != "jcs" { errors = push(errors, "unknown signature algorithm or canonicalization") }
+	signature := dict_get(adapter, "signature", {}); if dict_get(signature, "algorithm", "") != "rsa-sha256" || dict_get(signature, "canonicalization", "") != "searchbridge-canonical-json/v1" { errors = push(errors, "unknown signature algorithm or canonicalization") }
 	if len(errors) == 0 { schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest-v2.schema.json"))); if !schema_check["valid"] { errors = push(errors, "adapter manifest does not satisfy v2 schema") } }
 	return {"ok": len(errors) == 0, "errors": errors}
 }
@@ -85,13 +85,11 @@ func safe_package_path(relative) { return relative != "" && !starts_with(relativ
 
 export func load_signed_adapter_v2(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) {
 	if manifest_path == "" || signature_path == "" || key_environment == "" { return failure("signed adapters require manifest, signature, and trust key") }
-	key := env(key_environment); if key == "" { return failure("adapter signature key environment variable is unavailable") }
 	try {
 		manifest_text := read_file(manifest_path); adapter := parse_json(manifest_text)
 		if canonical_json(adapter) != trim(manifest_text) { return failure("adapter manifest is not canonical JSON") }
-		if rsa_verify(manifest_text, trim(read_file(signature_path)), key) != true { return failure("adapter package RSA-SHA256 signature verification failed") }
 		checked := validate_adapter_v2(adapter); if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
-		expected_fingerprint := dict_get(dict_get(adapter, "publisher", {}), "key_fingerprint", ""); if expected_fingerprint != "sha256:" + sha256(trim(key)) { return failure("adapter publisher trust-key fingerprint mismatch") }
+		expected_fingerprint := dict_get(dict_get(adapter, "publisher", {}), "key_fingerprint", ""); revoked := split(env("SEARCHBRIDGE_ADAPTER_REVOKED_FINGERPRINTS"), ","); if includes(revoked, expected_fingerprint) { return failure("adapter publisher trust key is revoked") }; mut verified := false; mut available := false; for variable in split(key_environment, ",") { key := env(trim(variable)); if key == "" { continue }; available = true; if expected_fingerprint == "sha256:" + sha256(trim(key)) && rsa_verify(manifest_text, trim(read_file(signature_path)), key) == true { verified = true } }; if !available { return failure("adapter signature key environment variable is unavailable") }; if !verified { return failure("adapter package signature did not match a trusted, non-revoked publisher key") }
 		base := dirname(manifest_path)
 		for file in dict_get(adapter, "package_files", []) {
 			relative := dict_get(file, "path", ""); if !safe_package_path(relative) { return failure("unsafe adapter package path") }
@@ -125,13 +123,11 @@ export func execute_adapter(registry, name, capability, options) {
 
 export func load_signed_adapter(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) {
 	if manifest_path == "" || signature_path == "" || key_environment == "" { return failure("signed adapters require --adapter-manifest, --adapter-signature, and --adapter-key-env") }
-	key := env(key_environment); if key == "" { return failure("adapter signature key environment variable is unavailable") }
 	try {
 		manifest_text := read_file(manifest_path)
 		preview := parse_json(manifest_text)
 		if dict_get(preview, "contract", "") == "searchbridge-adapter/v2" { return load_signed_adapter_v2(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) }
-		signature := trim(read_file(signature_path))
-		if rsa_verify(manifest_text, signature, key) != true { return failure("adapter manifest RSA-SHA256 signature verification failed") }
+		signature := trim(read_file(signature_path)); mut verified := false; mut available := false; revoked := split(env("SEARCHBRIDGE_ADAPTER_REVOKED_FINGERPRINTS"), ","); for variable in split(key_environment, ",") { key := env(trim(variable)); if key == "" { continue }; available = true; fingerprint := "sha256:" + sha256(trim(key)); if !includes(revoked, fingerprint) && rsa_verify(manifest_text, signature, key) == true { verified = true } }; if !available { return failure("adapter signature key environment variable is unavailable") }; if !verified { return failure("adapter manifest signature did not match a trusted, non-revoked key") }
 		adapter := parse_json(manifest_text); checked := validate_adapter(adapter); if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
 		schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest.schema.json"))); if !schema_check["valid"] { return failure("adapter manifest does not satisfy its schema") }
 		for capability in adapter["capabilities"] { if !includes(capability_allowlist, capability) { return failure("adapter capability is not allowlisted: " + capability) } }

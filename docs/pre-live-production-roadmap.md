@@ -53,7 +53,7 @@ provider behavior, not discover missing core architecture.
   advertised public contract before release.
 - [ ] Complete a threat model, repository security scan, and fuzz/property tests
   for URL, JSON, CSV, canonicalization, signature, cache, and redaction paths.
-- [ ] Verify RFC 8785 canonicalization or name the implemented signing format
+- [x] Verify RFC 8785 canonicalization or name the implemented signing format
   precisely; add trust-key rotation and revocation behavior.
 - [ ] Require dependency, secret, and static-analysis checks in release gates.
 
