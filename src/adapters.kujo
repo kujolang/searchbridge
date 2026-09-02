@@ -1,4 +1,4 @@
-from src.core import VERSION, dict_get, failure, success, providers, query_encode
+from src.core import VERSION, dict_get, failure, success, providers, query_encode, query_fingerprint
 from src.registry import adapters
 from src.transport import request_json
 from src.protocols import validate_exact_endpoint
@@ -156,7 +156,7 @@ func run_signed_adapter_v2(adapter, options) {
 	rows := json_pointer(raw_result["value"]["body"], operation["response"]["rows_pointer"]); if type(rows) != "array" { rows = [] }
 	if len(rows) > options["max_total_rows"] { rows = slice(rows, 0, options["max_total_rows"]) }
 	mut run_mode := "live"; if options["fixture"] { run_mode = "fixture" }; mut retrieved_at := now_utc(); if options["deterministic"] { retrieved_at = "1970-01-01T00:00:00Z" }
-	return success({"schema": "searchbridge.result/v1", "capability": capability, "provider": adapter["id"], "mode": run_mode, "retrieved_at": retrieved_at, "rows": rows, "contract": {"capability": capability + "/v1", "adapter": "searchbridge-adapter/v2"}, "source": {"provider": adapter["id"], "provider_api_version": adapter["provider_api_version"], "adapter_version": adapter["adapter_version"], "operation": operation["id"]}, "adapter_manifest_hash": sha256(canonical_json(adapter)), "telemetry": raw_result["value"]["telemetry"]})
+	return success({"schema": "searchbridge.result/v1", "capability": capability, "provider": adapter["id"], "mode": run_mode, "retrieved_at": retrieved_at, "rows": rows, "contract": {"capability": capability + "/v1", "adapter": "searchbridge-adapter/v2"}, "source": {"provider": adapter["id"], "provider_api_version": adapter["provider_api_version"], "adapter_version": adapter["adapter_version"], "operation": operation["id"]}, "query": {"fingerprint": query_fingerprint(options, capability)}, "budgets": {"calls": options["max_calls"], "pages": options["max_pages"], "rows": options["max_total_rows"], "bytes": options["max_output_bytes"], "tokens": options["max_output_tokens"], "provider_units": options["max_provider_units"], "polls": options["max_polls"], "elapsed_ms": options["max_elapsed_ms"]}, "cost": {"class": adapter["cost_class"], "estimated_provider_units": 0, "actual_provider_units": null}, "adapter_manifest_hash": sha256(canonical_json(adapter)), "telemetry": raw_result["value"]["telemetry"]})
 }
 
 export func run_signed_adapter(options) {

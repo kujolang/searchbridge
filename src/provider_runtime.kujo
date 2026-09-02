@@ -1,4 +1,4 @@
-from src.core import failure, success, fixture, envelope, dict_get, take, query_encode, now_text, includes
+from src.core import failure, success, fixture, envelope, dict_get, take, query_encode, query_fingerprint, now_text, includes
 from src.registry import adapters, operation_for
 from src.transport import request_json
 from src.protocols import cost_preflight, graphql_result, validate_exact_endpoint, validate_template_endpoint
@@ -17,12 +17,13 @@ func result_metadata(value, provider, operation, options, telemetry, routing) {
 	a := adapters()[provider]
 	value["contract"] := {"capability": value["capability"] + "/v1", "adapter": "searchbridge-adapter/v2"}
 	value["source"] := {"provider": provider, "provider_api_version": a["provider_api_version"], "adapter_version": a["adapter_version"], "operation": operation["id"], "documentation_checked_at": "2026-09-02"}
-	sanitized := {"keyword": keyword(options), "target": target(options), "locale": locale(options), "device": device(options), "country": to_upper(options["country"])}
-	value["query"] := {"fingerprint": "sha256:" + sha256(to_json(sanitized)), "locale": sanitized["locale"], "device": sanitized["device"]}
+	sanitized := {"locale": locale(options), "device": device(options)}
+	value["query"] := {"fingerprint": query_fingerprint(options, value["capability"]), "locale": sanitized["locale"], "device": sanitized["device"]}
 	value["budgets"] := {"calls": options["max_calls"], "pages": options["max_pages"], "rows": options["max_total_rows"], "bytes": options["max_output_bytes"], "tokens": options["max_output_tokens"], "provider_units": options["max_provider_units"], "polls": options["max_polls"], "elapsed_ms": options["max_elapsed_ms"]}
 	value["routing"] := routing
 	mut actual_units := dict_get(dict_get(telemetry, "provider_cost", {}), "cost", null)
-	value["cost"] := {"class": a["cost_class"], "estimated_provider_units": 1, "actual_provider_units": actual_units}
+	mut estimated_units := 0; if includes(["metered", "expensive", "unknown"], a["cost_class"]) { estimated_units = 1 }; if provider == "dataforseo" && operation["id"] == "google-organic-standard" { estimated_units = 2 }
+	value["cost"] := {"class": a["cost_class"], "estimated_provider_units": estimated_units, "actual_provider_units": actual_units}
 	value["telemetry"] := telemetry
 	return value
 }

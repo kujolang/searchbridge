@@ -127,6 +127,36 @@ export func query_encode(value) {
 	return encode_uri_component(to_string(value))
 }
 
+# Stable identity for normalized evidence requests. Keep credentials, cache
+# locations, output paths, telemetry endpoints, and routing policy out of this
+# value; provider and adapter identity are carried separately in source metadata.
+export func query_fingerprint(options, capability) {
+	query := {
+		"capability": capability,
+		"property": dict_get(options, "property", ""),
+		"start_date": dict_get(options, "start_date", ""),
+		"end_date": dict_get(options, "end_date", ""),
+		"dimensions": dict_get(options, "dimensions", ""),
+		"metrics": dict_get(options, "metrics", ""),
+		"url": dict_get(options, "url", ""),
+		"urls": dict_get(options, "urls", []),
+		"strategy": dict_get(options, "strategy", ""),
+		"form_factor": dict_get(options, "form_factor", ""),
+		"target": dict_get(options, "target", ""),
+		"keyword": dict_get(options, "keyword", ""),
+		"country": dict_get(options, "country", ""),
+		"location": dict_get(options, "location", ""),
+		"language": dict_get(options, "language", ""),
+		"device": dict_get(options, "device", ""),
+		"operation": dict_get(options, "operation", ""),
+		"limit": dict_get(options, "limit", 0),
+		"page_size": dict_get(options, "page_size", 0),
+		"max_pages": dict_get(options, "max_pages", 0),
+		"max_total_rows": dict_get(options, "max_total_rows", 0)
+	}
+	return "sha256:" + sha256(to_json(query))
+}
+
 func parse_port(authority) {
 	if starts_with(authority, "[") {
 		closing := index_of(authority, "]")

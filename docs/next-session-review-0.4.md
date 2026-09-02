@@ -1,8 +1,8 @@
 # SearchBridge next-session review — 0.4
 
-The 0.3 implementation closes all repository-local scale, extension, adoption,
-and insight work. The remaining P0 items require release authorization or
-external provider resources.
+The provider expansion is fixture-complete, but the broader repository-local
+production work is tracked in `docs/pre-live-production-roadmap.md`. Complete
+that roadmap before treating live-provider proof as the only remaining gate.
 
 ## P0 — activate external proof
 

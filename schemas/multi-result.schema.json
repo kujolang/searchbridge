@@ -1,1 +1,57 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://schemas.kujolang.ai/searchbridge/multi-result.v1.json","type":"object","required":["schema","capability","routing","budget","succeeded","failed","results"],"properties":{"schema":{"const":"searchbridge.multi-result/v1"},"capability":{"type":"string"},"routing":{"type":"object","required":["mode","requested"],"properties":{"mode":{"const":"all"},"requested":{"type":"array","maxItems":8,"items":{"type":"string"}}},"additionalProperties":true},"budget":{"type":"object","required":["max_providers","max_total_rows"],"properties":{"max_providers":{"type":"integer","maximum":8},"max_total_rows":{"type":"integer","maximum":100000}},"additionalProperties":true},"succeeded":{"type":"integer","minimum":0},"failed":{"type":"integer","minimum":0},"results":{"type":"array","maxItems":8,"items":{"type":"object","required":["provider","ok"],"properties":{"provider":{"type":"string"},"ok":{"type":"boolean"},"value":{"type":"object"},"error":{"type":"object"}},"additionalProperties":false}}},"additionalProperties":false}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.kujolang.ai/searchbridge/multi-result.v1.json",
+  "type": "object",
+  "required": ["schema", "capability", "routing", "budget", "succeeded", "failed", "results"],
+  "properties": {
+    "schema": {"const": "searchbridge.multi-result/v1"},
+    "capability": {"type": "string"},
+    "routing": {
+      "type": "object",
+      "required": ["mode", "requested"],
+      "properties": {
+        "mode": {"const": "all"},
+        "requested": {"type": "array", "maxItems": 8, "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "budget": {
+      "type": "object",
+      "required": ["max_providers", "max_calls", "calls_used", "retries_used", "max_pages", "pages_used", "max_polls", "polls_used", "max_provider_units", "provider_units_used", "max_total_rows", "rows_used", "max_response_bytes", "response_bytes_used", "max_output_bytes", "result_bytes_used", "max_elapsed_ms", "elapsed_ms"],
+      "properties": {
+        "max_providers": {"type": "integer", "minimum": 1, "maximum": 8},
+        "max_calls": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "calls_used": {"type": "integer", "minimum": 0, "maximum": 1000},
+        "retries_used": {"type": "integer", "minimum": 0},
+        "max_pages": {"type": "integer", "minimum": 1},
+        "pages_used": {"type": "integer", "minimum": 0},
+        "max_polls": {"type": "integer", "minimum": 1},
+        "polls_used": {"type": "integer", "minimum": 0},
+        "max_provider_units": {"type": "number", "minimum": 0},
+        "provider_units_used": {"type": "number", "minimum": 0},
+        "max_total_rows": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "rows_used": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "max_response_bytes": {"type": "integer", "minimum": 1},
+        "response_bytes_used": {"type": "integer", "minimum": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 1},
+        "result_bytes_used": {"type": "integer", "minimum": 0},
+        "max_elapsed_ms": {"type": "integer", "minimum": 1},
+        "elapsed_ms": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "succeeded": {"type": "integer", "minimum": 0},
+    "failed": {"type": "integer", "minimum": 0},
+    "results": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["provider", "ok"],
+        "properties": {"provider": {"type": "string"}, "ok": {"type": "boolean"}, "value": {"type": "object"}, "error": {"type": "object"}},
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
