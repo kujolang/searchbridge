@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 (
   cd "$ROOT/sdk/typescript"
+  npm ci
   npm run check
   npm run build
   node dist/example.js
