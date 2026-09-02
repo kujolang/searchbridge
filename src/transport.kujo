@@ -58,7 +58,7 @@ export func request_json(url, method, body, headers, policy, transport) {
 	for key in keys(headers) { merged[key] := headers[key] }
 	if type(body) != "null" { merged["Content-Type"] := "application/json" }
 	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "destination_policy": "deny_private", "pin_dns": true, "max_response_bytes": MAX_PROVIDER_BYTES}
-	if type(body) != "null" { request_options["body"] := to_json(body) }
+	if type(body) != "null" { request_options["body"] = to_json(body) }
 	mut call_transport := transport; if type(call_transport) == "null" { call_transport = default_transport }
 	mut attempt := 0
 	mut max_attempts := dict_get(policy, "retries", 2) + 1
@@ -144,3 +144,15 @@ export func plausible_page_contract_transport(_url, request_options) {
 }
 
 export func csv_contract_transport(_url, _request_options) { return Ok({"_status": 200, "_body": "name;value\nalpha;1\nbeta;2\n"}) }
+
+export func external_pagination_contract_transport(url, request_options) {
+	mut body := {}; if dict_get(request_options, "body", "") != "" { body = parse_json(request_options["body"]) }; pagination := dict_get(body, "pagination", {})
+	if contains(url, "/cursor") { cursor := dict_get(pagination, "cursor", ""); if cursor == "" { return Ok({"_status": 200, "_body": to_json({"rows": [{"id": "cursor-1"}], "next": "next-1"})}) }; return Ok({"_status": 200, "_body": to_json({"rows": [{"id": "cursor-2"}], "next": ""})}) }
+	if contains(url, "/page") { page := dict_get(pagination, "page", 1); if page == 1 { return Ok({"_status": 200, "_body": to_json({"rows": [{"id": "page-1"}, {"id": "page-2"}]})}) }; return Ok({"_status": 200, "_body": to_json({"rows": [{"id": "page-3"}]})}) }
+	if contains(url, "/async/start") { return Ok({"_status": 202, "_body": to_json({"task": {"id": "task-1", "status": "pending"}})}) }
+	if contains(url, "/async/result/task-1") { return Ok({"_status": 200, "_body": to_json({"task": {"id": "task-1", "status": "completed", "result": {"rows": [{"id": "async-1"}]}}})}) }
+	if contains(url, "/query?") { return Ok({"_status": 200, "_body": to_json({"rows": [{"id": url}]})}) }
+	if contains(url, "/format/csv") { return Ok({"_status": 200, "_body": "id,value\ncsv-1,42\n"}) }
+	if contains(url, "/format/graphql") { return Ok({"_status": 200, "_body": to_json({"data": {"rows": [{"id": "graphql-1"}]}})}) }
+	return Ok({"_status": 404, "_body": "{}"})
+}

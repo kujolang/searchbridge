@@ -2,7 +2,7 @@ from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_
 from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode, query_fingerprint, value_within_bounds
 from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, read_protected_cached_response
-from src.adapters import validate_adapter, validate_adapter_v2, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter
+from src.adapters import validate_adapter, validate_adapter_v2, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter, external_pagination_contract_probe
 from src.commands import pagination_contract_probe
 from src.telemetry import otel_payload, validate_otel_privacy, export_otel
 from src.registry import adapters, validate_registry, providers_for, resolve, agent_catalog
@@ -106,6 +106,13 @@ check(!cursor_sequence(["a", "a"], 3)["ok"] && cursor_sequence(["a", "b"], 2)["o
 task_done := async_task_sequence([{"id": "task-1", "status": "pending", "elapsed_ms": 10}, {"id": "task-1", "status": "completed", "elapsed_ms": 10, "result": {"rows": []}}], 2, 100)
 check(task_done["ok"] && task_done["value"]["polls"] == 2, "async task state machine completes within poll and elapsed budgets")
 check(!async_task_sequence([{"id": "bad\nvalue", "status": "pending"}], 2, 100)["ok"], "async task IDs reject control characters")
+external_pagination := external_pagination_contract_probe()
+check(external_pagination["cursor"]["ok"] && len(external_pagination["cursor"]["value"]["rows"]) == 2 && external_pagination["cursor"]["value"]["pagination"]["pages_fetched"] == 2, "external cursor pagination follows and bounds unique cursors")
+check(external_pagination["page"]["ok"] && len(external_pagination["page"]["value"]["rows"]) == 3 && external_pagination["page"]["value"]["pagination"]["pages_fetched"] == 2, "external page-size pagination stops on the partial page")
+check(external_pagination["async"]["ok"] && len(external_pagination["async"]["value"]["rows"]) == 1 && external_pagination["async"]["value"]["telemetry"]["task_polls"] == 1, "external asynchronous tasks validate ids and complete within call/poll/elapsed budgets")
+check(external_pagination["query"]["ok"] && external_pagination["query"]["value"]["rows"][0]["id"] == "https://example.invalid/query?country=US&keyword=kujo%20language", "external query templates are allowlisted, sorted, and RFC 3986 encoded")
+check(external_pagination["csv"]["ok"] && external_pagination["csv"]["value"]["rows"][0]["id"] == "csv-1", "external runtime parses bounded CSV through the shared transport")
+check(external_pagination["graphql"]["ok"] && external_pagination["graphql"]["value"]["rows"][0]["id"] == "graphql-1", "external runtime unwraps GraphQL data and rejects GraphQL errors")
 csv_ok := bounded_csv_parse("name;value\nx;=CMD()\n", 2, 4, 32)
 check(csv_ok["ok"] && !bounded_csv_parse("name;name\nx;y\n", 2, 4, 32)["ok"], "bounded CSV parser treats formulas as data and rejects duplicate headers")
 check(!graphql_result({"data": null, "errors": [{"message": "token=secret"}]})["ok"] && contains(graphql_result({"data": null, "errors": [{"message": "token=secret"}]})["error"], "secret") == 0, "GraphQL failures do not echo provider errors")

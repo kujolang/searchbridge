@@ -22,7 +22,7 @@ provider behavior, not discover missing core architecture.
 
 ## 2. External adapter runtime and conformance
 
-- [ ] Complete adapter v2 request templating, typed field mapping, JSON/CSV/
+- [x] Complete adapter v2 request templating, typed field mapping, JSON/CSV/
   GraphQL response handling, and bounded pagination strategies.
 - [x] Route installed external adapters through semantic `fetch` without core
   provider-specific branches.
