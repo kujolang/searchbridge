@@ -57,6 +57,14 @@ check(auto_route["ok"] && auto_route["value"]["selected"] == ["serpapi"], "regis
 all_route := resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"])
 check(all_route["ok"] && all_route["value"]["selected"] == ["serpapi", "dataforseo"], "registry all routing preserves configured order")
 check(utf8_size(to_json(agent_catalog())) <= 4096, "agent catalog stays within the 4 KiB budget")
+for name in ["rank-tracking", "serp-results", "domain-visibility", "traffic-estimate", "edge-analytics", "crawl-data"] {
+	row := parse_json(read_file("examples/rows/" + name + ".json")); schema := runtime_schema("schemas/rows/" + name + ".schema.json")
+	check(json_schema_validate(row, schema)["valid"], name + " canonical example satisfies its row schema")
+	if has_key(row, "metrics") { for observation in row["metrics"] { check(json_schema_validate(observation, runtime_schema("schemas/metric-observation.schema.json"))["valid"], name + " metric observation satisfies shared schema") } }
+}
+visibility_metric := parse_json(read_file("examples/rows/domain-visibility.json"))["metrics"][0]
+traffic_metric := parse_json(read_file("examples/rows/traffic-estimate.json"))["metrics"][0]
+check(visibility_metric["comparison_key"] == null && visibility_metric["metric_id"] != traffic_metric["metric_id"], "incompatible provider metrics cannot claim arithmetic equivalence")
 
 # Every declared read adapter normalizes through a deterministic fixture.
 fixture_cases := [

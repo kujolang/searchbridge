@@ -2,6 +2,8 @@ package searchbridge
 
 import "encoding/json"
 
+type MetricObservation struct { MetricID string `json:"metric_id"`; SemanticFamily string `json:"semantic_family"`; Value any `json:"value"`; Unit string `json:"unit"`; Estimated bool `json:"estimated"`; DefinitionVersion string `json:"definition_version"`; ComparisonKey *string `json:"comparison_key"`; SourceField string `json:"source_field"` }
+
 type Result struct {
 	Schema string `json:"schema"`
 	Capability string `json:"capability"`
@@ -20,3 +22,5 @@ type Batch struct {
 	Failed int `json:"failed"`
 	Results []json.RawMessage `json:"results"`
 }
+
+type MultiResult struct { Schema string `json:"schema"`; Capability string `json:"capability"`; Routing json.RawMessage `json:"routing"`; Budget json.RawMessage `json:"budget"`; Succeeded int `json:"succeeded"`; Failed int `json:"failed"`; Results []json.RawMessage `json:"results"` }

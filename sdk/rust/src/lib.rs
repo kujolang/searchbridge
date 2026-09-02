@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricObservation { pub metric_id: String, pub semantic_family: String, pub value: Value, pub unit: String, pub estimated: bool, pub definition_version: String, pub comparison_key: Option<String>, pub source_field: String }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchBridgeResult {
     pub schema: String,
     pub capability: String,
@@ -21,3 +24,6 @@ pub struct SearchBridgeBatch {
     pub failed: u32,
     pub results: Vec<Value>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchBridgeMultiResult { pub schema: String, pub capability: String, pub routing: Value, pub budget: Value, pub succeeded: u32, pub failed: u32, pub results: Vec<Value> }

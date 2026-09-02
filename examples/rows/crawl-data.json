@@ -1,0 +1,1 @@
+{"provider_run_id":"synthetic-run","url":"https://example.com/","crawled_at":"2026-09-02T00:00:00Z","status":200,"facts":{"content_type":"text/html"},"issues":[{"rule_id":"provider.rule.synthetic","severity":"info","message":"Synthetic fixture."}]}

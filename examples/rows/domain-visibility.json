@@ -1,0 +1,1 @@
+{"target":"example.com","scope":"domain","locale":"US","observed_at":"2026-09-02T00:00:00Z","metrics":[{"metric_id":"semrush.visibility_index","semantic_family":"search_visibility","value":12.4,"unit":"provider_index","estimated":true,"definition_version":"2026-09-02","comparison_key":null,"source_field":"visibility"}]}
