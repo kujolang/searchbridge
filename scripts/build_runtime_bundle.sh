@@ -6,7 +6,11 @@ KUJO_RUNTIME="${KUJO_BIN:-}"
 PLATFORM="${1:-}"
 if [[ -z "$KUJO_RUNTIME" || ! -f "$KUJO_RUNTIME" ]]; then printf 'Set KUJO_BIN to a built Kujo runtime.\n' >&2; exit 2; fi
 if [[ ! "$PLATFORM" =~ ^(linux-x64|macos-x64|macos-arm64|windows-x64)$ ]]; then printf 'Unsupported bundle platform.\n' >&2; exit 2; fi
-VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
+VERSION="$(tr -d '\r\n' < "$ROOT/VERSION")"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+  printf 'SearchBridge: VERSION is not a valid semantic version.\n' >&2
+  exit 2
+fi
 OUTPUT="$ROOT/dist/runtime"
 ARCHIVE="$OUTPUT/searchbridge-$VERSION-$PLATFORM.tar.gz"
 WORK="$(mktemp -d)"
