@@ -4,6 +4,16 @@ SearchBridge has one provider contract: `searchbridge-adapter/v2`. Built-ins and
 
 External packages are declarative and read-only. They cannot execute Kujo, native code, shell, filesystem operations, raw GraphQL or mutations. Each request uses a fixed HTTPS endpoint template, denied redirects, schema-enumerated query fields and an environment-variable credential bound to that exact endpoint. Endpoint, capability and credential allowlists are required again at invocation.
 
+Request bodies use recursive `body_template` objects whose leaves may reference
+allowlisted `query.FIELD` slots. The only transform is `csv-list`; arbitrary
+expressions are not supported. Normalization is an ordered mapping of JSON
+pointers or safe query fields to row fields with explicit scalar coercions.
+JSON, GraphQL JSON, and bounded CSV parsing stay inside the shared transport.
+Offset pagination declares separate body slots for offset and limit. Installed
+packages participate in semantic fetch only through an explicit provider ID;
+external `auto` and `all` discovery remain disabled until a trusted installation
+registry exists.
+
 The manifest must be canonical JSON and satisfy `schemas/adapter-manifest-v2.schema.json`. Its detached RSA-SHA256 signature covers the canonical manifest bytes. The manifest binds every auxiliary file by SHA-256, so fixture or mapping tampering fails before credentials are read. Trust uses the publisher public-key fingerprint; the display name is not an identity claim.
 
 The Plausible package under `adapters/plausible/` is the reference. Its committed key is a package verification key, not a provider credential. Load that public key into the environment variable named by `--adapter-key-env`; never place API tokens in manifests or configuration.

@@ -10,6 +10,7 @@
 - Added concise agent/MCP tool metadata, provider snapshots, drift/live probes, and 100,000-row atomic streaming benchmarks.
 - Added aggregate multi-provider budget accounting, all-failed process status, and complete credential-free query fingerprints.
 - Added run/trace/query provenance across envelopes, JSONL, encrypted replay, derived evidence, generated SDKs, and OTLP.
+- Added typed external-adapter request templates, row mappings, bounded offset pagination, shared CSV parsing, behavioral fixture conformance, and explicit semantic-fetch routing for signed packages.
 
 ## 0.3.0 — 2026-08-12
 

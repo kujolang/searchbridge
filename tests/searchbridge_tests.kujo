@@ -1,6 +1,6 @@
 from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_probe, result_exit_code
 from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode, query_fingerprint, value_within_bounds
-from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport
+from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, read_protected_cached_response
 from src.adapters import validate_adapter, validate_adapter_v2, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter
 from src.commands import pagination_contract_probe
@@ -203,7 +203,13 @@ delete_file(adapter_path); delete_file(signature_path); env_set("SEARCHBRIDGE_AD
 env_set("SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", read_file("adapters/plausible/trust-key.pem"))
 plausible_options := options_for("adapter-run", ["--fixture", "--offline", "--deterministic", "--capability", "analytics", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"])
 plausible_result := run_signed_adapter(plausible_options)
-check(plausible_result["ok"] && plausible_result["value"]["provider"] == "plausible" && len(plausible_result["value"]["rows"]) == 2, "signed Plausible adapter v2 executes its synthetic fixture")
+check(plausible_result["ok"] && plausible_result["value"]["provider"] == "plausible" && len(plausible_result["value"]["rows"]) == 2 && plausible_result["value"]["rows"][0]["visitors"] == "12", "signed Plausible adapter v2 executes and normalizes its synthetic fixture")
+plausible_fetch_options := options_for("fetch", ["--provider", "plausible", "--capability", "analytics", "--fixture", "--offline", "--deterministic", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"]); plausible_fetch := dispatch("fetch", plausible_fetch_options)
+check(plausible_fetch["ok"] && plausible_fetch["value"]["routing"]["candidates"][0]["reason"] == "verified signed external adapter", "semantic fetch routes an explicit signed external adapter without a core provider branch")
+env_set("SEARCHBRIDGE_PLAUSIBLE_TOKEN", "fixture-token")
+plausible_live_options := options_for("fetch", ["--provider", "plausible", "--capability", "analytics", "--property", "example.com", "--start-date", "2026-09-01", "--end-date", "2026-09-02", "--dimensions", "date,page", "--metrics", "visitors,visits", "--page-size", "2", "--max-pages", "3", "--max-total-rows", "3", "--max-calls", "3", "--deterministic", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"]); plausible_live_options["transport"] = plausible_page_contract_transport; plausible_live := dispatch("fetch", plausible_live_options)
+check(plausible_live["ok"] && len(plausible_live["value"]["rows"]) == 3 && plausible_live["value"]["pagination"]["pages_fetched"] == 2 && plausible_live["value"]["telemetry"]["attempts"] == 2, "external adapter templates typed query fields and enforces bounded offset pagination")
+env_set("SEARCHBRIDGE_PLAUSIBLE_TOKEN", "")
 plausible_manifest := parse_json(read_file("adapters/plausible/adapter.json")); mut malicious_operation := plausible_manifest["operations"][0]; malicious_operation["class"] = "write"; plausible_manifest["operations"] = [malicious_operation]
 check(!validate_adapter_v2(plausible_manifest)["ok"], "external adapter v2 rejects write operations")
 tamper_dir := "/tmp/searchbridge-adapter-v2-" + to_string(current_timestamp()); create_dir(tamper_dir); create_dir(tamper_dir + "/fixtures")
@@ -211,6 +217,9 @@ write_file(tamper_dir + "/adapter.json", read_file("adapters/plausible/adapter.j
 tampered_options := plausible_options; tampered_options["adapter_manifest"] = tamper_dir + "/adapter.json"; tampered_options["adapter_signature"] = tamper_dir + "/adapter.sig"
 check(!run_signed_adapter(tampered_options)["ok"], "adapter v2 rejects a tampered package file before execution")
 delete_file(tamper_dir + "/adapter.json"); delete_file(tamper_dir + "/adapter.sig"); delete_file(tamper_dir + "/fixtures/analytics.json"); os_rmdir(tamper_dir + "/fixtures"); os_rmdir(tamper_dir); env_set("SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "")
+
+csv_result := request_json("https://example.invalid/report", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 0, "max_calls": 1, "response_format": "csv", "max_total_rows": 2}, csv_contract_transport)
+check(csv_result["ok"] && len(csv_result["value"]["body"]) == 2 && csv_result["value"]["body"][1]["name"] == "beta", "shared transport parses bounded CSV for declarative adapters")
 
 # Submission is fail-closed and URL parsing strips fragments without leaking credentials.
 base_submit := ["--fixture", "--url", "https://example.com/new"]

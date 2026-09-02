@@ -4,4 +4,9 @@ This signed, declarative adapter demonstrates `searchbridge-adapter/v2` with Pla
 
 Load the public key from `trust-key.pem` into an environment variable, then run `adapter-run` with the manifest, detached signature, exact capability, endpoint and credential allowlists. Fixture mode reads no credential and performs no network call. Live mode reads `SEARCHBRIDGE_PLAUSIBLE_TOKEN` only after the signature, package digests and allowlists validate.
 
-The current generic package runner preserves normalized fixture rows. Query templating, offset paging and live request-body binding are restricted to the declared operation fields; use the built-in `fetch` interface for normal provider routing.
+The generic package runner materializes only declared, typed query slots into a
+fixed request-body template, normalizes only declared row mappings, and applies
+the shared call, page, row, response, output, retention, and timeout bounds.
+The Plausible operation uses bounded offset pagination. It can be invoked by
+`adapter-run` or by semantic `fetch --provider plausible`; both paths verify the
+signature, package digests, and invocation allowlists before credential access.

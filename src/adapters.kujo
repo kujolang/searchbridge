@@ -1,7 +1,9 @@
 from src.core import VERSION, dict_get, failure, success, providers, query_encode, query_fingerprint
-from src.registry import adapters
+from src.registry import adapters, operation_for
 from src.transport import request_json
-from src.protocols import validate_exact_endpoint
+from src.protocols import validate_exact_endpoint, graphql_result, cost_preflight
+from src.commands import command_search_performance, command_analytics, command_inspect, command_pagespeed, command_crux, command_backlinks, command_keywords, command_submit
+from src.provider_runtime import execute_new_provider
 
 export func required_adapter_fields() {
 	return ["name", "capabilities", "write_capabilities", "cost_class", "request_contract", "response_contract", "discovery", "request", "normalization", "write_boundary"]
@@ -48,6 +50,12 @@ export func validate_adapter_v2(adapter) {
 		request := dict_get(operation, "request", {}); endpoint := dict_get(request, "endpoint_template", "")
 		if !starts_with(endpoint, "https://") || contains(endpoint, "@") || contains(endpoint, "#") { errors = push(errors, "operation endpoint must be an exact safe HTTPS template") }
 		if dict_get(request, "redirects", "") != "deny" { errors = push(errors, "external adapter redirects must be denied") }
+		response := dict_get(operation, "response", {}); if dict_get(response, "max_bytes", 0) < 1 || dict_get(response, "max_bytes", 0) > 8388608 { errors = push(errors, "response byte bound is invalid") }
+		pagination := dict_get(operation, "pagination", {}); if dict_get(pagination, "strategy", "") == "offset-limit" && (!starts_with(dict_get(pagination, "request_slot", ""), "body.") || !starts_with(dict_get(pagination, "limit_slot", ""), "body.")) { errors = push(errors, "offset pagination requires body request and limit slots") }
+		for rule in dict_get(dict_get(operation, "normalization", {}), "mapping", []) {
+			if !regex_match(dict_get(rule, "target", ""), "^[a-z][a-z0-9_]*$") || (!starts_with(dict_get(rule, "source", ""), "/") && !starts_with(dict_get(rule, "source", ""), "$query.")) { errors = push(errors, "normalization mapping is invalid") }
+			if !allowed(["string", "string-or-null", "number", "number-or-null", "integer", "integer-or-null", "boolean", "boolean-or-null", "uri-or-null"], dict_get(rule, "coerce", "")) { errors = push(errors, "normalization coercion is invalid") }
+		}
 	}
 	signature := dict_get(adapter, "signature", {}); if dict_get(signature, "algorithm", "") != "rsa-sha256" || dict_get(signature, "canonicalization", "") != "jcs" { errors = push(errors, "unknown signature algorithm or canonicalization") }
 	if len(errors) == 0 { schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest-v2.schema.json"))); if !schema_check["valid"] { errors = push(errors, "adapter manifest does not satisfy v2 schema") } }
@@ -128,15 +136,74 @@ func json_pointer(value, pointer) {
 
 func external_v2_operation(adapter, capability) { for operation in adapter["operations"] { if operation["capability"] == capability { return operation } }; return null }
 
+func safe_query_slot(name) { return includes(["property", "start_date", "end_date", "dimensions", "metrics", "url", "target", "keyword", "country", "location", "language", "device", "operation", "page_size", "max_total_rows"], name) }
+
+func materialize_template(value, options) {
+	if type(value) == "dict" && has_key(value, "slot") {
+		slot := value["slot"]; if !starts_with(slot, "query.") { return failure("adapter template slot must reference a safe query field") }; name := substring(slot, 6, len(slot)); if !safe_query_slot(name) { return failure("adapter template references an unsupported query field") }
+		resolved := dict_get(options, name, ""); transform := dict_get(value, "transform", "identity")
+		if transform == "csv-list" { mut items := []; for raw in split(to_string(resolved), ",") { item := trim(raw); if item != "" { items = push(items, item) } }; return success(items) }
+		if transform != "identity" { return failure("adapter template uses an unsupported transform") }
+		return success(resolved)
+	}
+	if type(value) == "dict" { mut output := {}; for key in keys(value) { built := materialize_template(value[key], options); if !built["ok"] { return built }; output[key] := built["value"] }; return success(output) }
+	if type(value) == "array" { mut output := []; for item in value { built := materialize_template(item, options); if !built["ok"] { return built }; output = push(output, built["value"]) }; return success(output) }
+	return success(value)
+}
+
+func validate_body_fields(body, allowed_fields) {
+	if type(body) == "null" { return success(true) }
+	if type(body) != "dict" { return failure("adapter request body must be an object") }
+	for key in keys(body) { if !includes(allowed_fields, key) && key != "pagination" { return failure("adapter request body field is not declared: " + key) } }
+	return success(true)
+}
+
+func set_nested(record, parts, index, value) {
+	mut output := record; key := parts[index]
+	if index + 1 == len(parts) { output[key] = value; return output }
+	mut child := dict_get(output, key, {}); if type(child) != "dict" { child = {} }; output[key] = set_nested(child, parts, index + 1, value); return output
+}
+
+func set_request_slot(body, slot, value) {
+	if !starts_with(slot, "body.") { return failure("adapter pagination slot must target the request body") }
+	parts := split(substring(slot, 5, len(slot)), "."); if len(parts) == 0 || len(parts) > 8 { return failure("adapter pagination slot is invalid") }
+	for part in parts { if !regex_match(part, "^[a-z][a-z0-9_]*$") { return failure("adapter pagination slot is invalid") } }
+	mut base := body; if type(base) == "null" { base = {} }; return success(set_nested(base, parts, 0, value))
+}
+
+func coerce_mapping(value, kind) {
+	if kind == "string" { if type(value) == "null" { return failure("required adapter mapping value is missing") }; return success(to_string(value)) }
+	if includes(["string-or-null", "uri-or-null"], kind) { if type(value) == "null" { return success(null) }; text := to_string(value); if kind == "uri-or-null" && !starts_with(text, "https://") && !starts_with(text, "http://") { return failure("adapter mapping produced an invalid URI") }; return success(text) }
+	if includes(["number", "number-or-null"], kind) { if type(value) == "null" && kind == "number-or-null" { return success(null) }; if type(value) != "int" && type(value) != "float" { return failure("adapter mapping expected a number") }; return success(value) }
+	if includes(["integer", "integer-or-null"], kind) { if type(value) == "null" && kind == "integer-or-null" { return success(null) }; if type(value) == "int" { return success(value) }; if type(value) == "string" && regex_match(value, "^-?[0-9]+$") { return success(to_int(value)) }; return failure("adapter mapping expected an integer") }
+	if includes(["boolean", "boolean-or-null"], kind) { if type(value) == "null" && kind == "boolean-or-null" { return success(null) }; if type(value) != "bool" { return failure("adapter mapping expected a boolean") }; return success(value) }
+	return failure("adapter mapping uses an unsupported coercion")
+}
+
+func normalize_external_rows(rows, operation, options) {
+	mapping := dict_get(operation["normalization"], "mapping", []); if len(mapping) == 0 { return success(rows) }; mut normalized := []
+	for source_row in rows {
+		mut output := {}
+		for rule in mapping {
+			source := rule["source"]; mut raw := null
+			if starts_with(source, "$query.") { name := substring(source, 7, len(source)); if !safe_query_slot(name) { return failure("adapter normalization references an unsupported query field") }; raw = dict_get(options, name, null) }
+			else { raw = json_pointer(source_row, source) }
+			coerced := coerce_mapping(raw, rule["coerce"]); if !coerced["ok"] { return coerced }; output[rule["target"]] := coerced["value"]
+		}
+		normalized = push(normalized, output)
+	}
+	return success(normalized)
+}
+
 func run_signed_adapter_v2(adapter, options) {
 	capability := options["capability"]; operation := external_v2_operation(adapter, capability)
 	if type(operation) == "null" { return failure("adapter does not implement requested capability") }
-	options["provider"] = adapter["id"]; options["adapter_version"] = adapter["adapter_version"]; retention_cap := dict_get(dict_get(adapter, "retention", {}), "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("adapter retention policy caps cache age") }
-	mut raw_result := null; base := dirname(options["adapter_manifest"])
+	options["provider"] = adapter["id"]; options["adapter_version"] = adapter["adapter_version"]; retention_cap := dict_get(dict_get(adapter, "retention", {}), "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("adapter retention policy caps cache age") }; preflight := cost_preflight(adapter["cost_class"], options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
+	mut raw_result := null; base := dirname(options["adapter_manifest"]); request := operation["request"]; response := operation["response"]; pagination := operation["pagination"]
 	if options["fixture"] {
 		fixture_path := path_join(base, operation["fixture"]); raw_result = success({"body": parse_json(read_file(fixture_path)), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})
 	} else {
-		request := operation["request"]; endpoint := request["endpoint_template"]; mut headers := {}; mut body := dict_get(request, "body", null); mut auth_mode := "none"
+		endpoint := request["endpoint_template"]; mut headers := {}; template := dict_get(request, "body_template", dict_get(request, "body", null)); built_body := materialize_template(template, options); if !built_body["ok"] { return built_body }; mut body := built_body["value"]; body_fields := validate_body_fields(body, dict_get(request, "allowed_query_fields", [])); if !body_fields["ok"] { return body_fields }; mut auth_mode := "none"
 		credential_name := dict_get(request, "credential", "")
 		if credential_name != "" {
 			mut credential_spec := null; for item in adapter["credentials"] { if item["name"] == credential_name { credential_spec = item } }
@@ -150,13 +217,25 @@ func run_signed_adapter_v2(adapter, options) {
 			else if mode == "body" { if type(body) == "null" { body = {} }; body[credential_spec["field"]] := credential }
 		}
 		checked_endpoint := validate_exact_endpoint(endpoint, request["endpoint_template"], auth_mode == "query"); if !checked_endpoint["ok"] { return checked_endpoint }
-		raw_result = request_json(endpoint, request["method"], body, headers, options, options["transport"])
+		strategy := pagination["strategy"]; mut page := 0; mut offset := 0; mut rows_seen := 0; mut accumulated := []; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}; mut last_body := null
+		while page < options["max_pages"] && rows_seen < options["max_total_rows"] {
+			mut page_body := body; remaining_rows := options["max_total_rows"] - rows_seen; page_limit := options["page_size"]; if page_limit > remaining_rows { page_limit = remaining_rows }
+			if strategy == "offset-limit" { slot := dict_get(pagination, "request_slot", ""); with_offset := set_request_slot(page_body, slot, offset); if !with_offset["ok"] { return with_offset }; page_body = with_offset["value"]; limit_slot := dict_get(pagination, "limit_slot", "body.pagination.limit"); with_limit := set_request_slot(page_body, limit_slot, page_limit); if !with_limit["ok"] { return with_limit }; page_body = with_limit["value"] }
+			mut request_options := options; request_options["response_format"] = response["format"]; request_options["max_calls"] = options["max_calls"] - total_telemetry["attempts"]; if request_options["max_calls"] < 1 { return failure("adapter call budget exhausted") }
+			page_result := request_json(endpoint, request["method"], page_body, headers, request_options, options["transport"]); if !page_result["ok"] { return page_result }; item_telemetry := page_result["value"]["telemetry"]; for field in ["attempts", "retries", "latency_ms", "retry_delay_ms", "response_bytes"] { total_telemetry[field] = total_telemetry[field] + item_telemetry[field] }; total_telemetry["cache_status"] = item_telemetry["cache_status"]; total_telemetry["provider_cost"] = item_telemetry["provider_cost"]
+			page_document := page_result["value"]["body"]; if response["format"] == "graphql-json" { graph := graphql_result(page_document); if !graph["ok"] { return graph }; page_document = graph["value"] }; last_body = page_document; page_rows := json_pointer(page_document, response["rows_pointer"]); if response["format"] == "csv" && response["rows_pointer"] == "/" { page_rows = page_document }; if type(page_rows) != "array" { page_rows = [] }
+			for item in page_rows { if rows_seen >= options["max_total_rows"] { break }; accumulated = push(accumulated, item); rows_seen = rows_seen + 1 }; page = page + 1
+			if strategy != "offset-limit" || len(page_rows) < page_limit { break }; offset = offset + len(page_rows)
+		}
+		if type(last_body) == "dict" { last_body["_searchbridge_rows"] := accumulated } else { last_body = {"_searchbridge_rows": accumulated} }; response["rows_pointer"] = "/_searchbridge_rows"; total_telemetry["pages"] := page; raw_result = success({"body": last_body, "telemetry": total_telemetry})
 	}
 	if !raw_result["ok"] { return raw_result }
-	rows := json_pointer(raw_result["value"]["body"], operation["response"]["rows_pointer"]); if type(rows) != "array" { rows = [] }
+	rows := json_pointer(raw_result["value"]["body"], response["rows_pointer"]); if type(rows) != "array" { rows = [] }
 	if len(rows) > options["max_total_rows"] { rows = slice(rows, 0, options["max_total_rows"]) }
+	normalized := normalize_external_rows(rows, operation, options); if !normalized["ok"] { return normalized }; rows = normalized["value"]
 	mut run_mode := "live"; if options["fixture"] { run_mode = "fixture" }; mut retrieved_at := now_utc(); if options["deterministic"] { retrieved_at = "1970-01-01T00:00:00Z" }
-	return success({"schema": "searchbridge.result/v1", "capability": capability, "provider": adapter["id"], "mode": run_mode, "retrieved_at": retrieved_at, "rows": rows, "contract": {"capability": capability + "/v1", "adapter": "searchbridge-adapter/v2"}, "source": {"provider": adapter["id"], "provider_api_version": adapter["provider_api_version"], "adapter_version": adapter["adapter_version"], "operation": operation["id"]}, "query": {"fingerprint": query_fingerprint(options, capability)}, "budgets": {"calls": options["max_calls"], "pages": options["max_pages"], "rows": options["max_total_rows"], "bytes": options["max_output_bytes"], "tokens": options["max_output_tokens"], "provider_units": options["max_provider_units"], "polls": options["max_polls"], "elapsed_ms": options["max_elapsed_ms"]}, "cost": {"class": adapter["cost_class"], "estimated_provider_units": 0, "actual_provider_units": null}, "adapter_manifest_hash": sha256(canonical_json(adapter)), "telemetry": raw_result["value"]["telemetry"]})
+	pages := dict_get(raw_result["value"]["telemetry"], "pages", 1); estimated_units := 0; if !options["fixture"] && includes(["metered", "expensive", "unknown"], adapter["cost_class"]) { estimated_units = pages }
+	return success({"schema": "searchbridge.result/v1", "capability": capability, "provider": adapter["id"], "mode": run_mode, "retrieved_at": retrieved_at, "rows": rows, "contract": {"capability": capability + "/v1", "adapter": "searchbridge-adapter/v2"}, "source": {"provider": adapter["id"], "provider_api_version": adapter["provider_api_version"], "adapter_version": adapter["adapter_version"], "operation": operation["id"]}, "query": {"fingerprint": query_fingerprint(options, capability)}, "pagination": {"strategy": pagination["strategy"], "pages_fetched": pages, "page_size": options["page_size"], "max_pages": options["max_pages"], "max_total_rows": options["max_total_rows"]}, "budgets": {"calls": options["max_calls"], "pages": options["max_pages"], "rows": options["max_total_rows"], "bytes": options["max_output_bytes"], "tokens": options["max_output_tokens"], "provider_units": options["max_provider_units"], "polls": options["max_polls"], "elapsed_ms": options["max_elapsed_ms"]}, "cost": {"class": adapter["cost_class"], "estimated_provider_units": estimated_units, "actual_provider_units": null}, "adapter_manifest_hash": sha256(canonical_json(adapter)), "telemetry": raw_result["value"]["telemetry"]})
 }
 
 export func run_signed_adapter(options) {
@@ -198,20 +277,55 @@ export func builtin_adapter_contracts() {
 	return contracts
 }
 
+func conformance_options(provider, capability) {
+	return {"fixture": true, "offline": true, "replay": false, "deterministic": true, "act": true, "yes": true, "cache_require_encryption": false, "allow_paid": false, "out": "", "timeout": 1.0, "retries": 0, "limit": 100, "page_size": 100, "max_pages": 10, "max_total_rows": 1000, "max_output_bytes": 1048576, "max_output_tokens": 250000, "provider": provider, "property": "https://example.com", "start_date": "2026-09-01", "end_date": "2026-09-02", "dimensions": "date,query,page", "metrics": "sessions,screenPageViews", "url": "https://example.com/", "urls": ["https://example.com/"], "strategy": "mobile", "form_factor": "PHONE", "target": "example.com", "keyword": "kujo language", "country": "US", "location": "United States", "language": "en", "device": "desktop", "operation": "", "route_preferences": "", "enabled_providers": "", "max_providers": 8, "max_calls": 0, "max_provider_units": 0.0, "max_polls": 20, "max_elapsed_ms": 120000, "key_location": "", "endpoint": "", "capability": capability, "current_capability": capability, "transport": null, "format": "json", "cache_dir": "", "cache_max_age": 86400, "cache_encryption_key_env": "", "replay_capabilities": "", "config": "", "profile": "", "health_policy": "info", "degraded_exit_code": 3, "require_capabilities": "", "commands": "", "max_concurrency": 4, "cancel_file": "", "adapter_manifest": "", "adapter_signature": "", "adapter_key_env": "", "adapter_allow_capabilities": "", "adapter_allow_endpoints": "", "adapter_allow_credentials": "", "otel_endpoint": "", "otel_service_name": "searchbridge", "evidence_path": "", "filter_field": "", "filter_equals": "", "join_path": "", "left_field": "", "right_field": "", "adapter_version": ""}
+}
+
+func row_schema(capability) {
+	mut name := replace(capability, ".", "-"); if capability == "analytics" || capability == "backlinks" { name = capability }; path := "schemas/rows/" + name + ".schema.json"; if !file_exists(path) { return null }; raw := parse_json(read_file(path)); mut schema := {}; for key in keys(raw) { if key != "$schema" && key != "$id" { schema[key] := raw[key] } }; return schema
+}
+
+func execute_builtin_fixture(provider, capability) {
+	options := conformance_options(provider, capability); routing := {"mode": "conformance", "selected": [provider], "candidates": []}
+	if includes(["dataforseo", "serpapi", "cloudflare", "semrush"], provider) { return execute_new_provider(provider, capability, options, routing) }
+	if capability == "search.performance" { return command_search_performance(options) }
+	if capability == "analytics" { return command_analytics(options) }
+	if capability == "url.inspection" { return command_inspect(options) }
+	if capability == "page.performance" { return command_pagespeed(options) }
+	if capability == "field.performance" { return command_crux(options) }
+	if capability == "backlinks" { return command_backlinks(options) }
+	if capability == "keyword.data" { return command_keywords(options) }
+	if capability == "index.submission" { return command_submit(options) }
+	return failure("no conformance executor for capability")
+}
+
+func validate_fixture_result(result, capability) {
+	if !result["ok"] || type(result["value"]) != "dict" { return false }
+	value := result["value"]; if capability == "index.submission" { return dict_get(value, "schema", "") == "searchbridge.submission/v1" && value["indexed"] == false }
+	if dict_get(value, "schema", "") != "searchbridge.result/v1" || type(dict_get(value, "rows", null)) != "array" { return false }
+	schema := row_schema(capability); if type(schema) == "null" { return true }; for row in value["rows"] { if !json_schema_validate(row, schema)["valid"] { return false } }; return true
+}
+
 export func adapter_conformance_report() {
 	registry := adapters(); mut errors := []; mut reports := []
 	for name in sort(keys(registry)) {
-		adapter := registry[name]; mut adapter_errors := []
+		adapter := registry[name]; mut adapter_errors := []; mut endpoint_ok := true; mut budgets_ok := true; mut redaction_ok := true; mut fixtures_ok := true; mut discovery_ok := true
 		for field in ["contract", "id", "adapter_version", "provider_api_version", "capabilities", "cost_class", "request_contract", "response_contract", "operations"] { if has_key(adapter, field) == 0 { adapter_errors = push(adapter_errors, "missing " + field) } }
 		for operation in adapter["operations"] {
 			if dict_get(operation, "class", "") != "read" && !includes(adapter["write_capabilities"], operation["capability"]) { adapter_errors = push(adapter_errors, "undeclared write operation") }
-			if !starts_with(operation["request"]["endpoint_template"], "https://") || operation["request"]["redirects"] != "deny" { adapter_errors = push(adapter_errors, "unsafe endpoint policy") }
+			if !starts_with(operation["request"]["endpoint_template"], "https://") || operation["request"]["redirects"] != "deny" { endpoint_ok = false; adapter_errors = push(adapter_errors, "unsafe endpoint policy") }
+			if dict_get(operation["response"], "max_bytes", 0) < 1 || dict_get(operation["response"], "max_bytes", 0) > 8388608 || !allowed(["none", "offset-limit", "page-size", "cursor", "provider-list-window", "async-task"], operation["pagination"]["strategy"]) { budgets_ok = false; adapter_errors = push(adapter_errors, operation["id"] + " invalid bounds") }
+			for field in dict_get(operation["request"], "allowed_query_fields", []) { if regex_match(field, "(?i)(^|_)(api_?key|token|secret|credential|password|authorization)($|_)") { redaction_ok = false; adapter_errors = push(adapter_errors, operation["id"] + " secret-shaped query field") } }
+			if !operation_for(name, operation["capability"])["ok"] { discovery_ok = false; adapter_errors = push(adapter_errors, operation["id"] + " is not discoverable") }
+			fixture_result := execute_builtin_fixture(name, operation["capability"]); if !validate_fixture_result(fixture_result, operation["capability"]) { fixtures_ok = false; adapter_errors = push(adapter_errors, operation["id"] + " fixture execution failed conformance") }
 		}
 		for error in adapter_errors { errors = push(errors, name + " " + error) }
-		reports = push(reports, {"adapter_id": name, "adapter_version": adapter["adapter_version"], "external": false, "ok": len(adapter_errors) == 0, "checks": {"manifest": true, "discovery": true, "endpoint": true, "budgets": true, "redaction": true, "fixture": true}})
+		reports = push(reports, {"adapter_id": name, "adapter_version": adapter["adapter_version"], "external": false, "ok": len(adapter_errors) == 0, "checks": {"manifest": len(adapter_errors) == 0, "discovery": discovery_ok, "endpoint": endpoint_ok, "budgets": budgets_ok, "redaction": redaction_ok, "fixture": fixtures_ok}})
 	}
-	plausible := parse_json(read_file("adapters/plausible/adapter.json")); plausible_checked := validate_adapter_v2(plausible)
+	plausible_text := read_file("adapters/plausible/adapter.json"); plausible := parse_json(plausible_text); plausible_checked := validate_adapter_v2(plausible); signature_ok := rsa_verify(plausible_text, trim(read_file("adapters/plausible/adapter.sig")), read_file("adapters/plausible/trust-key.pem")); fixture_body := parse_json(read_file("adapters/plausible/" + plausible["operations"][0]["fixture"])); fixture_rows := json_pointer(fixture_body, plausible["operations"][0]["response"]["rows_pointer"]); normalized := normalize_external_rows(fixture_rows, plausible["operations"][0], conformance_options("plausible", "analytics")); fixture_ok := normalized["ok"] && validate_fixture_result(success({"schema": "searchbridge.result/v1", "rows": normalized["value"]}), "analytics")
 	if !plausible_checked["ok"] { for error in plausible_checked["errors"] { errors = push(errors, "plausible " + error) } }
-	reports = push(reports, {"adapter_id": "plausible", "adapter_version": plausible["adapter_version"], "external": true, "ok": plausible_checked["ok"], "checks": {"manifest": plausible_checked["ok"], "discovery": true, "endpoint": true, "budgets": true, "redaction": true, "fixture": true, "external_write_rejection": true}})
+	if !signature_ok { errors = push(errors, "plausible signature verification failed") }; if !fixture_ok { errors = push(errors, "plausible fixture normalization failed") }; mut write_probe := plausible; mut write_operation := plausible["operations"][0]; write_operation["class"] = "write"; write_probe["operations"] = [write_operation]; external_write_rejection := !validate_adapter_v2(write_probe)["ok"]
+	plausible_manifest_ok := plausible_checked["ok"] && signature_ok; plausible_discovery_ok := len(plausible["capabilities"]) > 0; plausible_endpoint_ok := starts_with(plausible["operations"][0]["request"]["endpoint_template"], "https://"); plausible_budgets_ok := plausible["operations"][0]["response"]["max_bytes"] <= 8388608; plausible_ok := plausible_manifest_ok && fixture_ok && external_write_rejection
+	reports = push(reports, {"adapter_id": "plausible", "adapter_version": plausible["adapter_version"], "external": true, "ok": plausible_ok, "checks": {"manifest": plausible_manifest_ok, "discovery": plausible_discovery_ok, "endpoint": plausible_endpoint_ok, "budgets": plausible_budgets_ok, "redaction": true, "fixture": fixture_ok, "external_write_rejection": external_write_rejection}})
 	return {"schema": "searchbridge.adapter-conformance/v1", "ok": len(errors) == 0, "adapter_count": len(reports), "errors": errors, "reports": reports}
 }

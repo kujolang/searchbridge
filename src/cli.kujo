@@ -206,6 +206,11 @@ func fetch_one(provider, capability, options, routing) {
 
 func command_fetch(options) {
 	capability := options["capability"]; preferences := csv_values(options["route_preferences"]); enabled := csv_values(options["enabled_providers"])
+	if options["adapter_manifest"] != "" {
+		if includes(["auto", "all"], options["provider"]) { return failure("external adapter fetch requires its explicit provider id") }
+		requested_provider := options["provider"]; options["current_capability"] = capability; external := run_signed_adapter(options); if !external["ok"] { return external }; if external["value"]["provider"] != requested_provider { return failure("external adapter id does not match --provider") }
+		external_value := external["value"]; external_value["routing"] := {"mode": "explicit", "selected": [requested_provider], "candidates": [{"provider": requested_provider, "accepted": true, "reason": "verified signed external adapter"}]}; return {"ok": true, "value": external_value}
+	}
 	route := resolve(capability, options["provider"], preferences, enabled); if !route["ok"] { return route }; routing := route["value"]; selected := routing["selected"]
 	if len(selected) > options["max_providers"] { return failure("resolved providers exceed --max-providers") }
 	if options["provider"] != "all" { return fetch_one(selected[0], capability, options, routing) }

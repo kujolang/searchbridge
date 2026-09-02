@@ -24,9 +24,9 @@ provider behavior, not discover missing core architecture.
 
 - [ ] Complete adapter v2 request templating, typed field mapping, JSON/CSV/
   GraphQL response handling, and bounded pagination strategies.
-- [ ] Route installed external adapters through semantic `fetch` without core
+- [x] Route installed external adapters through semantic `fetch` without core
   provider-specific branches.
-- [ ] Prove the Plausible package through the generic engine in fixture mode.
+- [x] Prove the Plausible package through the generic engine in fixture mode.
 - [ ] Replace declarative/hard-coded conformance success flags with behavioral
   operation tests for success, empty, partial, provider error, rate limiting,
   pagination, bounds, redaction, and cost metadata.
