@@ -1,17 +1,22 @@
 from src.core import dict_get, failure, success
 
 export func configurable_keys() {
-	return ["fixture", "offline", "deterministic", "timeout", "retries", "limit", "page_size", "max_pages", "max_total_rows", "max_output_bytes", "max_output_tokens", "format", "cache_dir", "cache_max_age", "health_policy", "degraded_exit_code", "max_concurrency"]
+	return ["fixture", "offline", "deterministic", "allow_paid", "timeout", "retries", "limit", "page_size", "max_pages", "max_total_rows", "max_output_bytes", "max_output_tokens", "format", "cache_dir", "cache_max_age", "health_policy", "degraded_exit_code", "max_concurrency", "route_preferences", "enabled_providers", "max_providers", "max_calls", "max_provider_units", "max_polls", "max_elapsed_ms"]
 }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
 
+func nested_secret_key(values) {
+	if type(values) == "dict" { for key in keys(values) { lowered := to_lower(key); if contains(lowered, "token") || contains(lowered, "secret") || contains(lowered, "credential") || ends_with(lowered, "_key") { return key }; found := nested_secret_key(values[key]); if found != "" { return found } } }
+	if type(values) == "array" { for item in values { found := nested_secret_key(item); if found != "" { return found } } }
+	return ""
+}
+
 func safe_profile_values(values) {
 	if type(values) != "dict" { return failure("profile values must be a table") }
+	secret_key := nested_secret_key(values); if secret_key != "" { return failure("configuration files cannot contain secrets: " + secret_key) }
 	mut output := {}
 	for key in keys(values) {
-		lowered := to_lower(key)
-		if contains(lowered, "token") || contains(lowered, "secret") || contains(lowered, "credential") || ends_with(lowered, "_key") { return failure("configuration files cannot contain secrets: " + key) }
 		if !includes(configurable_keys(), key) { return failure("unsupported configuration key: " + key) }
 		output[key] := values[key]
 	}
@@ -24,12 +29,22 @@ export func load_profile(path, profile_name) {
 		document := parse_toml(read_file(path))
 		checked := json_schema_validate(document, {
 			"type": "object",
-			"properties": {"defaults": {"type": "object"}, "profiles": {"type": "object"}},
+			"properties": {"defaults": {"type": "object"}, "profiles": {"type": "object"}, "routing": {"type": "object"}, "providers": {"type": "object"}},
 			"additionalProperties": false
 		})
 		if checked["valid"] == false { return failure("configuration does not satisfy searchbridge config schema") }
 		defaults := safe_profile_values(dict_get(document, "defaults", {})); if !defaults["ok"] { return defaults }
 		mut merged := defaults["value"]
+		routing := dict_get(document, "routing", {}); mut nested_secret := nested_secret_key(routing); if nested_secret != "" { return failure("configuration files cannot contain secrets: " + nested_secret) }
+		for key in keys(routing) {
+			if key == "preferences" { mut value := routing[key]; if type(value) == "array" { value = join(value, ",") }; merged["route_preferences"] := value }
+			else if key == "enabled" { mut value := routing[key]; if type(value) == "array" { value = join(value, ",") }; merged["enabled_providers"] := value }
+			else { return failure("unsupported routing configuration key: " + key) }
+		}
+		provider_tables := dict_get(document, "providers", {}); nested_secret = nested_secret_key(provider_tables); if nested_secret != "" { return failure("configuration files cannot contain secrets: " + nested_secret) }
+		mut enabled := []
+		for provider in sort(keys(provider_tables)) { settings := provider_tables[provider]; for key in keys(settings) { if key != "enabled" { return failure("provider configuration only accepts enabled") } }; if dict_get(settings, "enabled", false) { enabled = push(enabled, provider) } }
+		if len(enabled) > 0 { merged["enabled_providers"] := join(enabled, ",") }
 		if profile_name != "" {
 			profiles := dict_get(document, "profiles", {})
 			if has_key(profiles, profile_name) == false { return failure("configuration profile not found: " + profile_name) }
@@ -48,6 +63,7 @@ export func environment_overrides() {
 		"max_output_bytes": "SEARCHBRIDGE_MAX_OUTPUT_BYTES", "max_output_tokens": "SEARCHBRIDGE_MAX_OUTPUT_TOKENS",
 		"format": "SEARCHBRIDGE_FORMAT", "cache_dir": "SEARCHBRIDGE_CACHE_DIR", "cache_max_age": "SEARCHBRIDGE_CACHE_MAX_AGE",
 		"health_policy": "SEARCHBRIDGE_HEALTH_POLICY", "degraded_exit_code": "SEARCHBRIDGE_DEGRADED_EXIT_CODE", "max_concurrency": "SEARCHBRIDGE_MAX_CONCURRENCY"
+		,"route_preferences": "SEARCHBRIDGE_ROUTE_PREFERENCES", "enabled_providers": "SEARCHBRIDGE_ENABLED_PROVIDERS", "max_providers": "SEARCHBRIDGE_MAX_PROVIDERS", "max_calls": "SEARCHBRIDGE_MAX_CALLS", "max_provider_units": "SEARCHBRIDGE_MAX_PROVIDER_UNITS", "max_polls": "SEARCHBRIDGE_MAX_POLLS", "max_elapsed_ms": "SEARCHBRIDGE_MAX_ELAPSED_MS"
 	}
 	for key in keys(mapping) { value := env(mapping[key]); if value != "" { overrides[key] := value } }
 	return overrides

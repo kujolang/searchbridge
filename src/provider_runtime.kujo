@@ -1,0 +1,122 @@
+from src.core import failure, success, fixture, envelope, dict_get, take, query_encode, now_text, includes
+from src.registry import adapters, operation_for
+from src.transport import request_json
+from src.protocols import cost_preflight, graphql_result
+
+func run_mode(options) { if options["fixture"] { return "fixture" }; return "live" }
+func locale(options) { mut value := options["language"]; if value == "" { value = "en" }; return value + "-" + to_upper(options["country"]) }
+func keyword(options) { if options["keyword"] != "" { return options["keyword"] }; return "kujo language" }
+func target(options) { if options["target"] != "" { return options["target"] }; return "example.com" }
+func device(options) { if options["device"] != "" { return options["device"] }; return "desktop" }
+
+func observation(metric_id, family, value, unit, estimated, comparison_key, source_field, definition_version) {
+	return {"metric_id": metric_id, "semantic_family": family, "value": value, "unit": unit, "estimated": estimated, "definition_version": definition_version, "comparison_key": comparison_key, "source_field": source_field}
+}
+
+func result_metadata(value, provider, operation, options, telemetry, routing) {
+	a := adapters()[provider]
+	value["contract"] := {"capability": value["capability"] + "/v1", "adapter": "searchbridge-adapter/v2"}
+	value["source"] := {"provider": provider, "provider_api_version": a["provider_api_version"], "adapter_version": a["adapter_version"], "operation": operation["id"], "documentation_checked_at": "2026-09-02"}
+	sanitized := {"keyword": keyword(options), "target": target(options), "locale": locale(options), "device": device(options), "country": to_upper(options["country"])}
+	value["query"] := {"fingerprint": "sha256:" + sha256(to_json(sanitized)), "locale": sanitized["locale"], "device": sanitized["device"]}
+	value["budgets"] := {"calls": options["max_calls"], "pages": options["max_pages"], "rows": options["max_total_rows"], "bytes": options["max_output_bytes"], "tokens": options["max_output_tokens"], "provider_units": options["max_provider_units"], "polls": options["max_polls"], "elapsed_ms": options["max_elapsed_ms"]}
+	value["routing"] := routing
+	mut actual_units := dict_get(dict_get(telemetry, "provider_cost", {}), "cost", null)
+	value["cost"] := {"class": a["cost_class"], "estimated_provider_units": 1, "actual_provider_units": actual_units}
+	value["telemetry"] := telemetry
+	return value
+}
+
+func dfs_items(raw) {
+	tasks := dict_get(raw, "tasks", []); if len(tasks) == 0 { return [] }; results := dict_get(tasks[0], "result", []); if len(results) == 0 { return [] }; return dict_get(results[0], "items", [])
+}
+
+func dfs_keyword_rows(raw) { tasks := dict_get(raw, "tasks", []); if len(tasks) == 0 { return [] }; return dict_get(tasks[0], "result", []) }
+
+func normalize_serp(provider, raw, options) {
+	mut source := []; if provider == "dataforseo" { source = dfs_items(raw) } else { source = dict_get(raw, "organic_results", []) }
+	mut rows := []
+	for item in take(source, options["max_total_rows"]) {
+		mut rank_group := dict_get(item, "rank_group", dict_get(item, "position", null)); mut rank_absolute := dict_get(item, "rank_absolute", dict_get(item, "position", null))
+		rows = push(rows, {"query": keyword(options), "engine": "google", "locale": locale(options), "device": device(options), "captured_at": now_text(options["deterministic"]), "result_type": dict_get(item, "type", "organic"), "rank_group": rank_group, "rank_absolute": rank_absolute, "url": dict_get(item, "url", dict_get(item, "link", null)), "title": dict_get(item, "title", null), "snippet": dict_get(item, "description", dict_get(item, "snippet", null)), "features": [], "metrics": []})
+	}
+	return rows
+}
+
+func normalize_rank(provider, raw, options) {
+	mut source := dfs_items(raw); if provider == "semrush" { source = dict_get(raw, "rows", []) }; mut rows := []
+	for item in take(source, options["max_total_rows"]) {
+		mut metrics := []
+		if provider == "semrush" { metrics = [observation("semrush.traffic_percent", "rank_traffic_estimate", dict_get(item, "traffic_percent", null), "percent", true, null, "traffic_percent", "2026-09-02")] }
+		rows = push(rows, {"keyword": dict_get(item, "keyword", keyword(options)), "target": dict_get(item, "domain", target(options)), "engine": "google", "locale": locale(options), "device": device(options), "observed_at": now_text(options["deterministic"]), "rank": dict_get(item, "rank_absolute", dict_get(item, "position", null)), "ranking_url": dict_get(item, "url", null), "project_id_hash": null, "metrics": metrics})
+	}
+	return rows
+}
+
+func normalize_keywords(provider, raw, options) {
+	mut source := dfs_keyword_rows(raw); if provider == "semrush" { source = dict_get(raw, "rows", []) }; mut rows := []
+	for item in take(source, options["max_total_rows"]) {
+		mut source_field := "search_volume"; if dict_get(item, "search_volume", null) == null { source_field = "volume" }
+		mut metrics := [observation(provider + ".search_volume", "keyword_search_volume_estimate", dict_get(item, "search_volume", dict_get(item, "volume", null)), "monthly_searches_estimate", true, provider + ".search_volume/" + to_upper(options["country"]), source_field, "2026-09-02")]
+		rows = push(rows, {"keyword": dict_get(item, "keyword", keyword(options)), "country": to_upper(options["country"]), "volume_estimate": dict_get(item, "search_volume", dict_get(item, "volume", null)), "difficulty_estimate": dict_get(item, "keyword_difficulty", null), "cpc_estimate": dict_get(item, "cpc", null), "metrics": metrics})
+	}
+	return rows
+}
+
+func normalize_cloudflare(raw, options) {
+	checked := graphql_result(raw); if !checked["ok"] { return checked }; data := checked["value"]; viewer := dict_get(data, "viewer", {}); zones := dict_get(viewer, "zones", []); mut source := []; if len(zones) > 0 { source = dict_get(zones[0], "httpRequests1dGroups", []) }; mut rows := []
+	for item in take(source, options["max_total_rows"]) { dims := dict_get(item, "dimensions", {}); sums := dict_get(item, "sum", {}); unique := dict_get(item, "uniq", {}); period := {"start": dict_get(dims, "date", options["start_date"]), "end": dict_get(dims, "date", options["end_date"]), "granularity": "day", "time_zone": "UTC"}; metrics := [observation("cloudflare.requests", "edge_request_count", dict_get(sums, "requests", null), "requests", false, "cloudflare.requests/httpRequests1dGroups", "requests", "httpRequests1dGroups/2026-09-02"), observation("cloudflare.bytes", "edge_transfer_bytes", dict_get(sums, "bytes", null), "bytes", false, "cloudflare.bytes/httpRequests1dGroups", "bytes", "httpRequests1dGroups/2026-09-02"), observation("cloudflare.uniques", "edge_unique_estimate", dict_get(unique, "uniques", null), "unique_estimate", true, null, "uniques", "httpRequests1dGroups/2026-09-02")]; rows = push(rows, {"zone_hash": "sha256:" + sha256(dict_get(options, "zone_id", "synthetic-zone")), "host": dict_get(dims, "clientRequestHTTPHost", null), "path": null, "period": period, "metrics": metrics}) }
+	return success(rows)
+}
+
+func normalize_semrush(capability, raw, options) {
+	source := dict_get(raw, "rows", []); mut rows := []
+	if capability == "domain.visibility" { for item in take(source, options["max_total_rows"]) { rows = push(rows, {"target": dict_get(item, "domain", target(options)), "scope": "domain", "locale": to_upper(options["country"]), "observed_at": now_text(options["deterministic"]), "metrics": [observation("semrush.visibility_index", "search_visibility", dict_get(item, "visibility", null), "provider_index", true, null, "visibility", "2026-09-02"), observation("semrush.organic_keywords", "ranking_keyword_count", dict_get(item, "organic_keywords", null), "keywords", true, "semrush.organic_keywords/domain/" + to_upper(options["country"]), "organic_keywords", "2026-09-02") ]}) }; return rows }
+	if capability == "traffic.estimate" { for item in take(source, options["max_total_rows"]) { period := {"start": dict_get(item, "period", null), "end": dict_get(item, "period", null), "granularity": "month", "time_zone": "UTC"}; rows = push(rows, {"target": dict_get(item, "domain", target(options)), "geography": dict_get(item, "country", to_upper(options["country"])), "device": "all", "channel": "all", "period": period, "metrics": [observation("semrush.visits", "traffic_estimate", dict_get(item, "visits", null), "visits_estimate", true, "semrush.visits/month/" + to_upper(options["country"]), "visits", "2026-09-02"), observation("semrush.unique_visitors", "unique_visitor_estimate", dict_get(item, "unique_visitors", null), "visitors_estimate", true, "semrush.unique_visitors/month/" + to_upper(options["country"]), "unique_visitors", "2026-09-02")]}) }; return rows }
+	if capability == "backlinks" { return take(source, options["max_total_rows"]) }
+	return rows
+}
+
+func fixture_name(provider, capability) {
+	if provider == "dataforseo" { if capability == "serp.results" { return "dataforseo-serp" }; if capability == "rank.tracking" { return "dataforseo-rank" }; return "dataforseo-keywords" }
+	if provider == "serpapi" { return "serpapi-serp" }
+	if provider == "cloudflare" { return "cloudflare-edge" }
+	if capability == "domain.visibility" { return "semrush-domain" }; if capability == "rank.tracking" { return "semrush-rank" }; if capability == "keyword.data" { return "semrush-keywords" }; if capability == "backlinks" { return "semrush-backlinks" }; return "semrush-traffic"
+}
+
+func live_request(provider, capability, options) {
+	if provider == "semrush" { return failure("Semrush live support is blocked pending recorded commercial and redistribution review") }
+	if provider == "dataforseo" {
+		login := env("SEARCHBRIDGE_DATAFORSEO_LOGIN"); password := env("SEARCHBRIDGE_DATAFORSEO_PASSWORD"); if login == "" || password == "" { return failure("DataForSEO credentials are unavailable") }
+		mut endpoint := "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"; mut body := [{"keyword": keyword(options), "location_name": options["location"], "language_code": options["language"], "device": device(options)}]
+		if capability == "rank.tracking" { endpoint = "https://api.dataforseo.com/v3/serp/google/organic/task_post" }
+		if capability == "keyword.data" { endpoint = "https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live"; body = [{"keywords": [keyword(options)], "location_name": options["location"], "language_code": options["language"]}] }
+		return request_json(endpoint, "POST", body, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, options, options["transport"])
+	}
+	if provider == "serpapi" {
+		key := env("SEARCHBRIDGE_SERPAPI_KEY"); if key == "" { return failure("SerpApi credential is unavailable") }
+		endpoint := "https://serpapi.com/search.json?engine=google&q=" + query_encode(keyword(options)) + "&location=" + query_encode(options["location"]) + "&hl=" + query_encode(options["language"]) + "&device=" + query_encode(device(options)) + "&api_key=" + query_encode(key)
+		return request_json(endpoint, "GET", null, {}, options, options["transport"])
+	}
+	token := env("SEARCHBRIDGE_CLOUDFLARE_TOKEN"); zone := env("SEARCHBRIDGE_CLOUDFLARE_ZONE_ID"); if token == "" || zone == "" { return failure("Cloudflare credentials are unavailable") }; options["zone_id"] = zone
+	query := "query SearchBridgeHttpRequests($zoneTag: string, $filter: ZoneHttpRequests1dGroupFilter_InputObject) { viewer { zones(filter: {zoneTag: $zoneTag}) { httpRequests1dGroups(limit: 1000, filter: $filter) { dimensions { date clientRequestHTTPHost } sum { requests bytes } uniq { uniques } } } } }"
+	variables := {"zoneTag": zone, "filter": {"date_geq": options["start_date"], "date_leq": options["end_date"]}}
+	return request_json("https://api.cloudflare.com/client/v4/graphql", "POST", {"query": query, "variables": variables}, {"Authorization": "Bearer " + token}, options, options["transport"])
+}
+
+export func execute_new_provider(provider, capability, options, routing) {
+	registry := adapters(); if has_key(registry, provider) == 0 { return failure("provider is not registered") }
+	a := registry[provider]; preflight := cost_preflight(a["cost_class"], options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
+	op_result := operation_for(provider, capability); if !op_result["ok"] { return op_result }; operation := op_result["value"]
+	mut raw_result := null
+	if options["fixture"] { loaded := fixture(fixture_name(provider, capability)); if !loaded["ok"] { return loaded }; raw_result = success({"body": loaded["value"], "telemetry": {"attempts": 0, "retries": 0, "retry_delay_ms": 0, "latency_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}}) }
+	else { raw_result = live_request(provider, capability, options) }
+	if !raw_result["ok"] { return raw_result }; raw := raw_result["value"]["body"]; mut rows := []
+	if capability == "serp.results" { rows = normalize_serp(provider, raw, options) }
+	else if capability == "rank.tracking" { rows = normalize_rank(provider, raw, options) }
+	else if capability == "keyword.data" { rows = normalize_keywords(provider, raw, options) }
+	else if capability == "edge.analytics" { checked := normalize_cloudflare(raw, options); if !checked["ok"] { return checked }; rows = checked["value"] }
+	else { rows = normalize_semrush(capability, raw, options) }
+	value := envelope(capability, provider, run_mode(options), rows, {}, options["deterministic"])
+	return success(result_metadata(value, provider, operation, options, raw_result["value"]["telemetry"], routing))
+}

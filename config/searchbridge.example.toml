@@ -6,6 +6,26 @@ max_pages = 10
 max_total_rows = 5000
 format = "json"
 health_policy = "info"
+max_providers = 8
+max_calls = 0
+max_provider_units = 0
+max_polls = 20
+max_elapsed_ms = 120000
+
+# Paid live calls still require --allow-paid plus explicit budgets.
+
+[routing]
+preferences = ["serpapi", "dataforseo"]
+enabled = ["serpapi", "dataforseo", "cloudflare"]
+
+[providers.serpapi]
+enabled = true
+
+[providers.dataforseo]
+enabled = true
+
+[providers.cloudflare]
+enabled = true
 
 [profiles.ci]
 offline = false

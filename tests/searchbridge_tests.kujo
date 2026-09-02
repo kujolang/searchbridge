@@ -6,6 +6,7 @@ from src.adapters import validate_adapter, validate_adapter_v2, register_adapter
 from src.commands import pagination_contract_probe
 from src.telemetry import otel_payload, validate_otel_privacy, export_otel
 from src.registry import adapters, validate_registry, providers_for, resolve, agent_catalog
+from src.protocols import cost_preflight, cursor_sequence, async_task_sequence, bounded_csv_parse, graphql_result
 
 mut passed := 0
 mut failed := 0
@@ -65,6 +66,32 @@ for name in ["rank-tracking", "serp-results", "domain-visibility", "traffic-esti
 visibility_metric := parse_json(read_file("examples/rows/domain-visibility.json"))["metrics"][0]
 traffic_metric := parse_json(read_file("examples/rows/traffic-estimate.json"))["metrics"][0]
 check(visibility_metric["comparison_key"] == null && visibility_metric["metric_id"] != traffic_metric["metric_id"], "incompatible provider metrics cannot claim arithmetic equivalence")
+
+# Semantic fetch preserves provider envelopes, routing evidence, global budgets, and paid-call policy.
+serp_fetch := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "serpapi", "--fixture", "--offline", "--deterministic"]))
+check(serp_fetch["ok"] && serp_fetch["value"]["provider"] == "serpapi" && serp_fetch["value"]["contract"]["adapter"] == "searchbridge-adapter/v2", "semantic fetch executes an explicit built-in adapter")
+auto_fetch := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "auto", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--fixture", "--offline", "--deterministic"]))
+check(auto_fetch["ok"] && auto_fetch["value"]["provider"] == "serpapi" && auto_fetch["value"]["routing"]["candidates"][0]["reason"] == "configured and capable", "auto fetch explains deterministic configured selection")
+all_fetch := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "all", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--fixture", "--offline", "--deterministic"]))
+check(all_fetch["ok"] && all_fetch["value"]["schema"] == "searchbridge.multi-result/v1" && all_fetch["value"]["succeeded"] == 2 && json_schema_validate(all_fetch["value"], runtime_schema("schemas/multi-result.schema.json"))["valid"], "all fetch returns intact stable multi-provider envelopes")
+bounded_all := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "all", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--max-total-rows", "1", "--fixture", "--offline", "--deterministic"]))
+check(bounded_all["ok"] && bounded_all["value"]["succeeded"] == 1 && bounded_all["value"]["failed"] == 1, "all fetch retains explicit partial failures at the global row budget")
+paid_denied := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "serpapi"]))
+check(!paid_denied["ok"] && contains(paid_denied["error"], "allow-paid") == 1, "paid live fetch fails before credential or transport without explicit budgets")
+check(!prepare_options("fetch", ["--capability", "serp.results", "--provider", "auto"])["ok"], "auto routing cannot silently use unconfigured fallback order")
+
+# Protocol primitives are finite and reject amplification and parser abuse.
+check(!cursor_sequence(["a", "a"], 3)["ok"] && cursor_sequence(["a", "b"], 2)["ok"], "cursor pagination rejects repetition and obeys page budgets")
+task_done := async_task_sequence([{"id": "task-1", "status": "pending", "elapsed_ms": 10}, {"id": "task-1", "status": "completed", "elapsed_ms": 10, "result": {"rows": []}}], 2, 100)
+check(task_done["ok"] && task_done["value"]["polls"] == 2, "async task state machine completes within poll and elapsed budgets")
+check(!async_task_sequence([{"id": "bad\nvalue", "status": "pending"}], 2, 100)["ok"], "async task IDs reject control characters")
+csv_ok := bounded_csv_parse("name;value\nx;=CMD()\n", 2, 4, 32)
+check(csv_ok["ok"] && !bounded_csv_parse("name;name\nx;y\n", 2, 4, 32)["ok"], "bounded CSV parser treats formulas as data and rejects duplicate headers")
+check(!graphql_result({"data": null, "errors": [{"message": "token=secret"}]})["ok"] && contains(graphql_result({"data": null, "errors": [{"message": "token=secret"}]})["error"], "secret") == 0, "GraphQL failures do not echo provider errors")
+check(!cost_preflight("metered", false, false, 1, 1)["ok"] && cost_preflight("metered", true, false, 0, 0)["ok"], "cost policy blocks paid live calls and exempts zero-call fixtures")
+fixture_contracts := parse_json(read_file("fixtures/provider-cases.json")); mut fixture_contracts_complete := true
+for operation_id in keys(fixture_contracts["operations"]) { for case_name in fixture_contracts["required_cases"] { if has_key(fixture_contracts["operations"][operation_id], case_name) == 0 { fixture_contracts_complete = false } } }
+check(fixture_contracts_complete, "every batch-1 operation declares the provider-neutral fixture minimum")
 
 # Every declared read adapter normalizes through a deterministic fixture.
 fixture_cases := [

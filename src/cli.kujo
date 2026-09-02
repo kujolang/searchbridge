@@ -1,25 +1,27 @@
-from src.core import VERSION, failure, clean_error, utf8_size
+from src.core import VERSION, failure, clean_error, utf8_size, csv_values
 from src.commands import static_command, command_search_performance, command_analytics, command_inspect, command_pagespeed, command_crux, command_backlinks, command_keywords, command_submit
 from src.config import load_profile, environment_overrides
 from src.adapters import adapter_conformance_report, run_signed_adapter
 from src.evidence import query_evidence
 from src.telemetry import export_otel
+from src.registry import resolve, operation_for, adapters
+from src.provider_runtime import execute_new_provider
 
-func bool_flags() { return ["fixture", "offline", "replay", "deterministic", "act", "yes", "cache-require-encryption"] }
-func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field"] }
+func bool_flags() { return ["fixture", "offline", "replay", "deterministic", "act", "yes", "cache-require-encryption", "allow-paid"] }
+func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field"] }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
-func commands() { return ["doctor", "capabilities", "providers", "version", "adapter-conformance", "adapter-run", "evidence-query", "batch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
+func commands() { return ["doctor", "capabilities", "providers", "version", "adapter-conformance", "adapter-run", "evidence-query", "batch", "fetch", "search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data", "submit"] }
 
 func default_options() {
 	return {
-		"fixture": false, "offline": false, "replay": false, "deterministic": false, "act": false, "yes": false, "cache_require_encryption": false,
+		"fixture": false, "offline": false, "replay": false, "deterministic": false, "act": false, "yes": false, "cache_require_encryption": false, "allow_paid": false,
 		"out": "", "timeout": 30.0, "retries": 2, "limit": 100, "page_size": 100, "max_pages": 10, "max_total_rows": 1000,
 		"max_output_bytes": 1048576, "max_output_tokens": 250000,
 		"provider": "", "property": "", "start_date": "", "end_date": "",
 		"dimensions": "", "metrics": "", "url": "", "urls": [],
 		"strategy": "mobile", "form_factor": "PHONE", "target": "", "keyword": "",
-		"country": "US", "key_location": "", "endpoint": "", "capability": "", "transport": null,
+		"country": "US", "location": "United States", "language": "en", "device": "desktop", "operation": "", "route_preferences": "", "enabled_providers": "", "max_providers": 8, "max_calls": 0, "max_provider_units": 0.0, "max_polls": 20, "max_elapsed_ms": 120000, "key_location": "", "endpoint": "", "capability": "", "transport": null,
 		"format": "json", "cache_dir": "", "cache_max_age": 86400, "cache_encryption_key_env": "", "replay_capabilities": "", "config": "", "profile": "", "health_policy": "info", "degraded_exit_code": 3, "require_capabilities": "", "commands": "", "max_concurrency": 4, "cancel_file": "",
 		"adapter_manifest": "", "adapter_signature": "", "adapter_key_env": "", "adapter_allow_capabilities": "", "adapter_allow_endpoints": "", "adapter_allow_credentials": "",
 		"otel_endpoint": "", "otel_service_name": "searchbridge", "evidence_path": "", "filter_field": "", "filter_equals": "", "join_path": "", "left_field": "", "right_field": ""
@@ -67,6 +69,7 @@ export func parse_options(tokens) {
 		options["max_output_bytes"] = to_int(options["max_output_bytes"])
 		options["max_output_tokens"] = to_int(options["max_output_tokens"])
 		options["cache_max_age"] = to_int(options["cache_max_age"]); options["degraded_exit_code"] = to_int(options["degraded_exit_code"]); options["max_concurrency"] = to_int(options["max_concurrency"])
+		options["max_providers"] = to_int(options["max_providers"]); options["max_calls"] = to_int(options["max_calls"]); options["max_provider_units"] = to_float(options["max_provider_units"]); options["max_polls"] = to_int(options["max_polls"]); options["max_elapsed_ms"] = to_int(options["max_elapsed_ms"])
 	} except number_error { return failure("numeric option contains an invalid value") }
 	if options["timeout"] <= 0 || options["timeout"] > 120 { return failure("--timeout must be between 0 and 120 seconds") }
 	if options["retries"] < 0 || options["retries"] > 5 { return failure("--retries must be between 0 and 5") }
@@ -75,6 +78,7 @@ export func parse_options(tokens) {
 	if options["max_output_bytes"] < 256 { return failure("--max-output-bytes must be at least 256") }
 	if options["max_output_tokens"] < 64 { return failure("--max-output-tokens must be at least 64") }
 	if options["cache_max_age"] < 0 || options["max_concurrency"] < 1 || options["max_concurrency"] > 32 { return failure("cache age or concurrency is outside supported bounds") }
+	if options["max_providers"] < 1 || options["max_providers"] > 8 || options["max_calls"] < 0 || options["max_calls"] > 1000 || options["max_provider_units"] < 0 || options["max_polls"] < 1 || options["max_polls"] > 20 || options["max_elapsed_ms"] < 1 || options["max_elapsed_ms"] > 120000 { return failure("provider execution budgets are outside supported bounds") }
 	if !includes(["json", "jsonl"], options["format"]) { return failure("--format must be json or jsonl") }
 	if !includes(["info", "warn", "fail"], options["health_policy"]) { return failure("--health-policy must be info, warn, or fail") }
 	if options["degraded_exit_code"] < 1 || options["degraded_exit_code"] > 125 { return failure("--degraded-exit-code must be between 1 and 125") }
@@ -87,8 +91,11 @@ func apply_command_defaults(command, options) {
 		else { options["dimensions"] = "date,query,page" }
 	}
 	if options["metrics"] == "" { options["metrics"] = "sessions,screenPageViews" }
-	if options["provider"] == "" {
+	if options["provider"] == "" && command != "fetch" {
 		if command == "backlinks" || command == "keyword-data" { options["provider"] = "ahrefs" }
+		else if command == "analytics" { options["provider"] = "google-analytics-4" }
+		else if command == "pagespeed" { options["provider"] = "pagespeed-insights" }
+		else if command == "crux" { options["provider"] = "crux" }
 		else if command == "submit" { options["provider"] = "indexnow" }
 		else { options["provider"] = "google-search-console" }
 	}
@@ -106,6 +113,10 @@ func validate_command_options(command, options) {
 	if options["cache_require_encryption"] && options["cache_encryption_key_env"] == "" { return failure("--cache-require-encryption requires --cache-encryption-key-env") }
 	if options["filter_field"] != "" && options["filter_equals"] == "" { return failure("--filter-field requires --filter-equals") }
 	if options["join_path"] != "" && (options["left_field"] == "" || options["right_field"] == "") { return failure("--join-path requires --left-field and --right-field") }
+	if command == "fetch" {
+		if options["capability"] == "" || options["provider"] == "" { return failure("fetch requires --capability and --provider") }
+		if options["provider"] == "auto" && options["route_preferences"] == "" { return failure("fetch --provider auto requires configured --route-preferences") }
+	}
 	return {"ok": true, "value": options}
 }
 
@@ -133,8 +144,10 @@ export func dispatch(command, options) {
 	if command == "adapter-run" { options["current_capability"] := options["capability"]; return run_signed_adapter(options) }
 	if command == "evidence-query" { return query_evidence(options) }
 	if command == "batch" { return command_batch(options) }
+	if command == "fetch" { return command_fetch(options) }
 	if includes(["doctor", "capabilities", "providers", "version"], command) { return static_command(command, options["deterministic"]) }
 	options["current_capability"] := command_capability(command)
+	if options["current_capability"] != "" && command != "submit" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered } }
 	if command == "search-performance" { return command_search_performance(options) }
 	if command == "analytics" { return command_analytics(options) }
 	if command == "inspect-url" { return command_inspect(options) }
@@ -144,6 +157,48 @@ export func dispatch(command, options) {
 	if command == "keyword-data" { return command_keywords(options) }
 	if command == "submit" { return command_submit(options) }
 	return failure("unknown command: " + command)
+}
+
+func add_fetch_metadata(value, provider, capability, routing, options) {
+	a := adapters()[provider]; op := operation_for(provider, capability); mut operation_id := "compatibility-alias"; if op["ok"] { operation_id = op["value"]["id"] }
+	value["contract"] := {"capability": capability + "/v1", "adapter": "searchbridge-adapter/v2"}
+	value["source"] := {"provider": provider, "provider_api_version": a["provider_api_version"], "adapter_version": a["adapter_version"], "operation": operation_id, "documentation_checked_at": "2026-09-02"}
+	value["query"] := {"fingerprint": "sha256:" + sha256(to_json({"capability": capability, "target": options["target"], "keyword": options["keyword"], "country": options["country"]}))}
+	value["budgets"] := {"calls": options["max_calls"], "pages": options["max_pages"], "rows": options["max_total_rows"], "bytes": options["max_output_bytes"], "tokens": options["max_output_tokens"]}
+	value["routing"] := routing
+	return value
+}
+
+func fetch_one(provider, capability, options, routing) {
+	options["provider"] = provider; options["current_capability"] = capability
+	if includes(["dataforseo", "serpapi", "cloudflare", "semrush"], provider) { return execute_new_provider(provider, capability, options, routing) }
+	mut result := null
+	if capability == "search.performance" { result = command_search_performance(options) }
+	else if capability == "analytics" { result = command_analytics(options) }
+	else if capability == "url.inspection" { result = command_inspect(options) }
+	else if capability == "page.performance" { result = command_pagespeed(options) }
+	else if capability == "field.performance" { result = command_crux(options) }
+	else if capability == "backlinks" { result = command_backlinks(options) }
+	else if capability == "keyword.data" { result = command_keywords(options) }
+	else { return failure("capability has no read executor") }
+	if !result["ok"] { return result }; return {"ok": true, "value": add_fetch_metadata(result["value"], provider, capability, routing, options)}
+}
+
+func command_fetch(options) {
+	capability := options["capability"]; preferences := csv_values(options["route_preferences"]); enabled := csv_values(options["enabled_providers"])
+	route := resolve(capability, options["provider"], preferences, enabled); if !route["ok"] { return route }; routing := route["value"]; selected := routing["selected"]
+	if len(selected) > options["max_providers"] { return failure("resolved providers exceed --max-providers") }
+	if options["provider"] != "all" { return fetch_one(selected[0], capability, options, routing) }
+	mut results := []; mut succeeded := 0; mut failed := 0; mut total_rows := 0
+	for provider in selected {
+		remaining := options["max_total_rows"] - total_rows
+		if remaining <= 0 { results = push(results, {"provider": provider, "ok": false, "error": {"code": "global_row_budget_exhausted", "retryable": false}}); failed = failed + 1; continue }
+		mut provider_options := {}; for key in keys(options) { provider_options[key] := options[key] }; provider_options["max_total_rows"] = remaining
+		result := fetch_one(provider, capability, provider_options, routing)
+		if result["ok"] { total_rows = total_rows + len(result["value"]["rows"]); results = push(results, {"provider": provider, "ok": true, "value": result["value"]}); succeeded = succeeded + 1 }
+		else { results = push(results, {"provider": provider, "ok": false, "error": {"code": "provider_failed", "retryable": false, "message": clean_error(result["error"])}}); failed = failed + 1 }
+	}
+	return {"ok": true, "value": {"schema": "searchbridge.multi-result/v1", "capability": capability, "routing": {"mode": "all", "requested": selected, "candidates": routing["candidates"]}, "budget": {"max_providers": options["max_providers"], "max_total_rows": options["max_total_rows"], "rows_used": total_rows}, "succeeded": succeeded, "failed": failed, "results": results}}
 }
 
 async func batch_worker(job) {
@@ -207,7 +262,7 @@ func print_help() {
 	print("Usage: ./searchbridge <command> [options]")
 	print("")
 	print("Commands: doctor, capabilities, providers, version, search-performance,")
-	print("          analytics, inspect-url, pagespeed, crux, backlinks, keyword-data, batch, submit,")
+	print("          fetch, analytics, inspect-url, pagespeed, crux, backlinks, keyword-data, batch, submit,")
 	print("          adapter-conformance, adapter-run, evidence-query")
 	print("")
 	print("Common options: --fixture --offline --deterministic --out PATH")
@@ -216,6 +271,7 @@ func print_help() {
 	print("                --config PATH --profile NAME --cache-dir PATH --replay")
 	print("                --otel-endpoint HTTPS_OR_FILE --cancel-file PATH")
 	print("                --max-output-bytes N --max-output-tokens N")
+	print("Fetch: --capability ID --provider ID|auto|all [--route-preferences IDS]")
 	print("Run README examples for provider-specific options.")
 }
 

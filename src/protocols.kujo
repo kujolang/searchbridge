@@ -1,0 +1,61 @@
+from src.core import failure, success, clean_error, utf8_size, dict_get, includes
+
+export func cost_preflight(cost_class, fixture_mode, allow_paid, max_calls, max_units) {
+	if fixture_mode { return success({"estimated_calls": 0, "estimated_provider_units": 0}) }
+	if includes(["metered", "expensive", "unknown"], cost_class) && (!allow_paid || max_calls < 1 || max_units <= 0) { return failure("paid or unknown live provider requires --allow-paid, --max-calls, and --max-provider-units") }
+	if max_calls < 1 { return failure("live provider requires a positive --max-calls budget") }
+	return success({"estimated_calls": 1, "estimated_provider_units": 1})
+}
+
+export func cursor_sequence(cursors, max_pages) {
+	mut seen := []; mut accepted := []
+	for cursor in cursors {
+		if len(accepted) >= max_pages { return failure("cursor page budget exceeded") }
+		if type(cursor) != "string" || len(cursor) > 1024 || regex_match(cursor, "[\\r\\n\\t]") { return failure("invalid provider cursor") }
+		if includes(seen, cursor) { return failure("provider repeated a pagination cursor") }
+		seen = push(seen, cursor); accepted = push(accepted, cursor)
+	}
+	return success(accepted)
+}
+
+export func async_task_sequence(states, max_polls, max_elapsed_ms) {
+	mut polls := 0; mut elapsed := 0
+	for state in states {
+		if polls >= max_polls || elapsed > max_elapsed_ms { return failure("provider task polling budget exceeded") }
+		id := dict_get(state, "id", ""); if id == "" || len(id) > 256 || regex_match(id, "[\\r\\n\\t]") { return failure("invalid provider task id") }
+		status := dict_get(state, "status", ""); elapsed = elapsed + dict_get(state, "elapsed_ms", 0); polls = polls + 1
+		if status == "completed" { return success({"polls": polls, "elapsed_ms": elapsed, "result": dict_get(state, "result", {})}) }
+		if status == "failed" { return failure("provider task failed") }
+		if status != "pending" { return failure("unknown provider task status") }
+	}
+	return failure("provider task did not complete within supplied sequence")
+}
+
+export func bounded_csv_parse(text, max_rows, max_columns, max_cell_bytes) {
+	if utf8_size(text) > 8388608 { return failure("CSV response exceeded 8 MiB") }
+	first_line := split(text, "\n")[0]; mut delimiter := ","; if contains(first_line, ";") > contains(first_line, ",") { delimiter = ";" }
+	mut normalized := ""; mut quoted := false; mut i := 0; mut header_columns := 1; mut in_header := true
+	while i < count_chars(text) {
+		character := char_at(text, i)
+		if character == "\"" {
+			if quoted && i + 1 < count_chars(text) && char_at(text, i + 1) == "\"" { normalized = normalized + "\"\""; i = i + 2; continue }
+			quoted = !quoted; normalized = normalized + character
+		} else if character == delimiter && !quoted { normalized = normalized + ","; if in_header { header_columns = header_columns + 1 } }
+		else { normalized = normalized + character; if character == "\n" && !quoted { in_header = false } }
+		i = i + 1
+	}
+	if header_columns > max_columns { return failure("CSV column budget exceeded") }
+	try {
+		rows := parse_csv(normalized); if len(rows) > max_rows { return failure("CSV row budget exceeded") }
+		if len(rows) > 0 && len(keys(rows[0])) != header_columns { return failure("CSV contains duplicate or empty headers") }
+		for row in rows { for key in keys(row) { if utf8_size(to_string(row[key])) > max_cell_bytes { return failure("CSV cell budget exceeded") } } }
+		return success(rows)
+	} except csv_error { return failure("provider returned invalid CSV: " + clean_error(csv_error)) }
+}
+
+export func graphql_result(payload) {
+	if type(payload) != "dict" { return failure("provider returned invalid GraphQL JSON") }
+	if len(dict_get(payload, "errors", [])) > 0 { return failure("provider GraphQL operation failed") }
+	if type(dict_get(payload, "data", null)) != "dict" { return failure("provider GraphQL response omitted data") }
+	return success(payload["data"])
+}

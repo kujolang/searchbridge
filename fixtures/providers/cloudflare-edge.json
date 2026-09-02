@@ -1,0 +1,1 @@
+{"data":{"viewer":{"zones":[{"httpRequests1dGroups":[{"dimensions":{"date":"2026-09-01","clientRequestHTTPHost":"example.com"},"sum":{"requests":42,"bytes":4096},"uniq":{"uniques":17}}]}]}},"errors":[]}
