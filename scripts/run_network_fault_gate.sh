@@ -21,4 +21,4 @@ for _ in $(seq 1 100); do
 done
 test -s "$GATE_DIR/http.port"
 test -s "$GATE_DIR/https.port"
-KUJO_NET_ALLOW_PRIVATE_DESTINATIONS=1 "$KUJO_RUNTIME" run "$ROOT_DIR/scripts/network_fault_gate.kujo" "http://127.0.0.1:$(<"$GATE_DIR/http.port")" "https://127.0.0.1:$(<"$GATE_DIR/https.port")"
+NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost KUJO_NET_ALLOW_PRIVATE_DESTINATIONS=1 "$KUJO_RUNTIME" run "$ROOT_DIR/scripts/network_fault_gate.kujo" "http://127.0.0.1:$(<"$GATE_DIR/http.port")" "https://127.0.0.1:$(<"$GATE_DIR/https.port")"
