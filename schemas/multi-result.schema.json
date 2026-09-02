@@ -42,6 +42,7 @@
     },
     "succeeded": {"type": "integer", "minimum": 0},
     "failed": {"type": "integer", "minimum": 0},
+    "provenance": {"type": "object"},
     "results": {
       "type": "array",
       "maxItems": 8,

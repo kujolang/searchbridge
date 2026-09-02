@@ -1,4 +1,4 @@
-from src.core import failure, success
+from src.core import failure, success, dict_get, includes
 
 export func query_evidence(options) {
 	if options["evidence_path"] == "" { return failure("evidence-query requires --evidence-path") }
@@ -7,5 +7,7 @@ export func query_evidence(options) {
 	if options["join_path"] != "" { query["join_path"] := options["join_path"]; query["left_field"] := options["left_field"]; query["right_field"] := options["right_field"] }
 	rows := jsonl_query(options["evidence_path"], query)
 	if type(rows) != "array" { return failure("evidence query failed") }
-	return success({"schema": "searchbridge.evidence-query/v1", "source": options["evidence_path"], "joined": options["join_path"] != "", "rows": rows})
+	mut parents := []
+	for item in rows { mut source_item := item; if type(item) == "dict" && has_key(item, "left") { source_item = item["left"] }; run_id := dict_get(dict_get(source_item, "provenance", {}), "run_id", ""); if run_id != "" && !includes(parents, run_id) { parents = push(parents, run_id) } }
+	return success({"schema": "searchbridge.evidence-query/v1", "source": options["evidence_path"], "source_sha256": "sha256:" + sha256_file(options["evidence_path"]), "joined": options["join_path"] != "", "parent_run_ids": parents, "rows": rows})
 }

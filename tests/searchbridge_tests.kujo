@@ -75,6 +75,7 @@ check(visibility_metric["comparison_key"] == null && visibility_metric["metric_i
 # Semantic fetch preserves provider envelopes, routing evidence, global budgets, and paid-call policy.
 serp_fetch := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "serpapi", "--fixture", "--offline", "--deterministic"]))
 check(serp_fetch["ok"] && serp_fetch["value"]["provider"] == "serpapi" && serp_fetch["value"]["contract"]["adapter"] == "searchbridge-adapter/v2", "semantic fetch executes an explicit built-in adapter")
+check(json_schema_validate(serp_fetch["value"]["provenance"], runtime_schema("schemas/provenance.schema.json"))["valid"] && serp_fetch["value"]["provenance"]["query_fingerprint"] == serp_fetch["value"]["query"]["fingerprint"], "result provenance binds run, trace, query, and contract identities")
 auto_fetch := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "auto", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--fixture", "--offline", "--deterministic"]))
 check(auto_fetch["ok"] && auto_fetch["value"]["provider"] == "serpapi" && auto_fetch["value"]["routing"]["candidates"][0]["reason"] == "configured and capable", "auto fetch explains deterministic configured selection")
 all_fetch := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "all", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--fixture", "--offline", "--deterministic"]))
@@ -165,7 +166,7 @@ bounded_gsc := normalize_gsc({"rows": [{"keys": ["a"]}, {"keys": ["b"]}]}, ["que
 check(len(bounded_gsc["rows"]) == 1, "provider rows are bounded after normalization")
 check(analytics["value"]["pagination"]["max_total_rows"] == 1000 && analytics["value"]["telemetry"]["rows"] == len(analytics["value"]["rows"]), "pagination and row telemetry are structured")
 jsonl_options := options_for("analytics", ["--fixture", "--format", "jsonl", "--out", output_path])
-check(render_output(analytics["value"], jsonl_options)["ok"] && len(split(trim(read_file(output_path)), "\n")) == len(analytics["value"]["rows"]), "JSONL rows stream within output budgets")
+check(render_output(analytics["value"], jsonl_options)["ok"] && len(split(trim(read_file(output_path)), "\n")) == len(analytics["value"]["rows"]) && parse_json(read_lines(output_path)[0])["provenance"]["run_id"] == analytics["value"]["provenance"]["run_id"], "JSONL rows stream within output budgets and preserve run provenance")
 delete_file(output_path)
 
 # Credential-independent replay and third-party adapter extension points.
@@ -175,11 +176,11 @@ check(hash_a == hash_b, "cache hashes exclude credentials")
 cache_dir := "/tmp/searchbridge-cache-test-" + to_string(current_timestamp()); write_cached_response(cache_dir, hash_a, 200, {"rows": []}, current_timestamp(), "2026-08-12T00:00:00Z")
 check(read_cached_response(cache_dir, hash_b, 60, current_timestamp())["ok"], "approved cache evidence replays by credential-independent hash")
 delete_file(cache_dir + "/" + hash_a + ".json"); os_rmdir(cache_dir)
-protected_dir := "/tmp/searchbridge-protected-cache-" + to_string(current_timestamp()); env_set("SEARCHBRIDGE_TEST_CACHE_KEY", "local-test-key")
-check(write_protected_cached_response(protected_dir, hash_a, 200, {"rows": [{"id": 1}]}, current_timestamp(), "2026-08-12T00:00:00Z", {"encryption_key_env": "SEARCHBRIDGE_TEST_CACHE_KEY"})["ok"], "encrypted replay record is written")
+protected_dir := "/tmp/searchbridge-protected-cache-" + to_string(current_timestamp()); env_set("SEARCHBRIDGE_TEST_CACHE_KEY", "local-test-key"); cached_run_id := "sb-0123456789abcdef0123456789abcdef"
+check(write_protected_cached_response(protected_dir, hash_a, 200, {"rows": [{"id": 1}]}, current_timestamp(), "2026-08-12T00:00:00Z", {"encryption_key_env": "SEARCHBRIDGE_TEST_CACHE_KEY", "provenance": {"run_id": cached_run_id, "query_fingerprint": "sha256:" + hash_a}})["ok"], "encrypted replay record is written")
 protected_record := parse_json(read_file(protected_dir + "/" + hash_a + ".json")); protected_text := read_file(protected_dir + "/" + hash_a + ".json"); check(protected_record["schema"] == "searchbridge.cache/v2" && contains(protected_text, "\"body\":") == 0, "encrypted replay record hides provider evidence at rest")
 protected_read := read_protected_cached_response(protected_dir, hash_a, 60, current_timestamp(), {"encryption_key_env": "SEARCHBRIDGE_TEST_CACHE_KEY", "require_encryption": true})
-check(protected_read["ok"] && protected_read["value"]["body"]["rows"][0]["id"] == 1, "encrypted replay verifies integrity and decrypts")
+check(protected_read["ok"] && protected_read["value"]["body"]["rows"][0]["id"] == 1 && protected_read["value"]["provenance"]["run_id"] == cached_run_id, "encrypted replay verifies integrity, decrypts, and preserves producer lineage")
 protected_record["integrity"] = "tampered"; write_file(protected_dir + "/" + hash_a + ".json", to_json(protected_record), true)
 check(!read_protected_cached_response(protected_dir, hash_a, 60, current_timestamp(), {"encryption_key_env": "SEARCHBRIDGE_TEST_CACHE_KEY", "require_encryption": true})["ok"], "tampered replay records fail closed")
 delete_file(protected_dir + "/" + hash_a + ".json"); os_rmdir(protected_dir); env_set("SEARCHBRIDGE_TEST_CACHE_KEY", "")
@@ -262,13 +263,14 @@ bad_dates := dispatch("search-performance", options_for("search-performance", ["
 check(!bad_dates["ok"] && contains(bad_dates["error"], "dates") == 1, "invalid GSC date ranges fail before authentication")
 batch := dispatch("batch", options_for("batch", ["--fixture", "--offline", "--deterministic", "--commands", "pagespeed,crux", "--max-concurrency", "2"]))
 check(batch["ok"] && batch["value"]["succeeded"] == 2 && batch["value"]["bounded_concurrency"] == 2 && batch["value"]["execution"] == "bounded-worker-pool", "bounded worker pool preserves independent successes")
+check(batch["value"]["results"][0]["value"]["provenance"]["parent_run_ids"] == [batch["value"]["provenance"]["run_id"]], "batch child results link to the parent run")
 pool_probe := batch_worker_pool_probe(); check(pool_probe["ordered"] == [0, 1, 2] && pool_probe["overlapped"], "bounded worker pool overlaps work and preserves deterministic ordering")
 cancel_path := "/tmp/searchbridge-cancel-" + to_string(current_timestamp()); write_file(cancel_path, "cancel", true); cancelled := dispatch("batch", options_for("batch", ["--fixture", "--offline", "--commands", "pagespeed,crux", "--cancel-file", cancel_path])); check(cancelled["ok"] && cancelled["value"]["failed"] == 2, "bounded worker pool honors cancellation without losing partial-success shape"); delete_file(cancel_path)
 
 # Provider pages stream incrementally to atomic JSONL artifacts without retaining accumulated rows.
 gsc_out := "/tmp/searchbridge-gsc-pages-" + to_string(current_timestamp()) + ".jsonl"; env_set("SEARCHBRIDGE_GSC_TOKEN", "fixture-token")
 gsc_options := options_for("search-performance", ["--property", "sc-domain:example.com", "--start-date", "2026-08-01", "--end-date", "2026-08-02", "--dimensions", "date,query", "--page-size", "2", "--max-pages", "3", "--max-total-rows", "3", "--format", "jsonl", "--out", gsc_out, "--deterministic"]); gsc_options["transport"] = gsc_page_contract_transport
-gsc_streamed := dispatch("search-performance", gsc_options); check(gsc_streamed["ok"] && len(gsc_streamed["value"]["rows"]) == 0 && len(read_lines(gsc_out)) == 3, "live GSC pages normalize and emit incrementally"); delete_file(gsc_out); env_set("SEARCHBRIDGE_GSC_TOKEN", "")
+gsc_streamed := dispatch("search-performance", gsc_options); check(gsc_streamed["ok"] && len(gsc_streamed["value"]["rows"]) == 0 && len(read_lines(gsc_out)) == 3 && parse_json(read_lines(gsc_out)[0])["provenance"]["run_id"] == gsc_streamed["value"]["provenance"]["run_id"], "live GSC pages normalize and emit incrementally with run provenance"); delete_file(gsc_out); env_set("SEARCHBRIDGE_GSC_TOKEN", "")
 ga_out := "/tmp/searchbridge-ga-pages-" + to_string(current_timestamp()) + ".jsonl"; env_set("SEARCHBRIDGE_GA4_TOKEN", "fixture-token")
 ga_options := options_for("analytics", ["--property", "123", "--dimensions", "date", "--metrics", "sessions", "--page-size", "2", "--max-pages", "3", "--max-total-rows", "3", "--format", "jsonl", "--out", ga_out, "--deterministic"]); ga_options["transport"] = ga_page_contract_transport
 ga_streamed := dispatch("analytics", ga_options); check(ga_streamed["ok"] && len(ga_streamed["value"]["rows"]) == 0 && len(read_lines(ga_out)) == 3, "live GA4 pages normalize and emit incrementally"); delete_file(ga_out); env_set("SEARCHBRIDGE_GA4_TOKEN", "")
@@ -276,11 +278,13 @@ ga_streamed := dispatch("analytics", ga_options); check(ga_streamed["ok"] && len
 # Privacy-preserving OpenTelemetry and bounded local evidence queries.
 privacy_payload := otel_payload("pagespeed", {"schema": "searchbridge.result/v1", "capability": "page.performance", "provider": "pagespeed-insights", "rows": [{"url": "https://secret.example/path?token=x"}], "telemetry": {"latency_ms": 3, "rows": 1}}, "searchbridge-test", true)
 check(validate_otel_privacy(privacy_payload)["ok"] && contains(to_json(privacy_payload), "secret.example") == 0 && contains(to_json(privacy_payload), "token=x") == 0, "OpenTelemetry export preserves the no-URL/no-token/no-row boundary")
+check(otel_payload("pagespeed", serp_fetch["value"], "searchbridge-test", true)["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"] == serp_fetch["value"]["provenance"]["trace_id"], "OpenTelemetry traces use the result provenance trace identifier")
 for sensitive in parse_json(read_file("fixtures/security/otel-redaction.json")) { corpus_payload := otel_payload("redaction-corpus", {"schema": "searchbridge.result/v1", "capability": "example.read", "provider": "external", "rows": [sensitive], "telemetry": {"rows": 1}}, "searchbridge-test", true); serialized := to_json(corpus_payload); check(validate_otel_privacy(corpus_payload)["ok"] && contains(serialized, "secret") == 0 && contains(serialized, "private.example") == 0 && contains(serialized, "person@example.com") == 0, "OpenTelemetry redaction corpus excludes sensitive input") }
 otel_path := "/tmp/searchbridge-otel-" + to_string(current_timestamp()) + ".jsonl"; otel_options := options_for("pagespeed", ["--fixture", "--otel-endpoint", "file:" + otel_path, "--deterministic"]); check(export_otel("pagespeed", privacy_payload, otel_options, null)["ok"] && file_exists(otel_path), "OpenTelemetry export is explicit opt-in"); delete_file(otel_path)
-evidence_left := "/tmp/searchbridge-evidence-left-" + to_string(current_timestamp()) + ".jsonl"; evidence_right := evidence_left + ".right"; write_file(evidence_left, "{\"provider\":\"gsc\",\"row\":{\"id\":1}}\n{\"provider\":\"ga4\",\"row\":{\"id\":2}}\n", true); write_file(evidence_right, "{\"id\":1,\"label\":\"match\"}\n", true)
+evidence_left := "/tmp/searchbridge-evidence-left-" + to_string(current_timestamp()) + ".jsonl"; evidence_right := evidence_left + ".right"; write_file(evidence_left, "{\"provider\":\"gsc\",\"provenance\":{\"run_id\":\"sb-0123456789abcdef0123456789abcdef\"},\"row\":{\"id\":1}}\n{\"provider\":\"ga4\",\"row\":{\"id\":2}}\n", true); write_file(evidence_right, "{\"id\":1,\"label\":\"match\"}\n", true)
 query_result := dispatch("evidence-query", options_for("evidence-query", ["--evidence-path", evidence_left, "--filter-field", "provider", "--filter-equals", "gsc", "--join-path", evidence_right, "--left-field", "row.id", "--right-field", "id", "--max-total-rows", "10"]))
 check(query_result["ok"] && len(query_result["value"]["rows"]) == 1 && query_result["value"]["rows"][0]["right"]["label"] == "match", "Kujo-native evidence query filters and joins bounded JSONL")
+check(query_result["value"]["provenance"]["parent_run_ids"] == ["sb-0123456789abcdef0123456789abcdef"] && starts_with(query_result["value"]["source_sha256"], "sha256:"), "evidence queries retain parent run lineage and source content identity")
 delete_file(evidence_left); delete_file(evidence_right)
 
 # Native provider paging accumulates pages while respecting both hard budgets.

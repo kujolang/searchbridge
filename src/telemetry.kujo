@@ -2,6 +2,7 @@ from src.core import dict_get, failure, success, clean_error
 
 export func otel_payload(command, value, service_name, deterministic) {
 	mut attributes := [{"key": "searchbridge.command", "value": {"stringValue": command}}, {"key": "searchbridge.schema", "value": {"stringValue": dict_get(value, "schema", "unknown")}}]
+	provenance := dict_get(value, "provenance", {}); run_id := dict_get(provenance, "run_id", ""); if run_id != "" { attributes = push(attributes, {"key": "searchbridge.run_id", "value": {"stringValue": run_id}}) }
 	if has_key(value, "capability") { attributes = push(attributes, {"key": "searchbridge.capability", "value": {"stringValue": value["capability"]}}) }
 	if has_key(value, "provider") { attributes = push(attributes, {"key": "searchbridge.provider", "value": {"stringValue": value["provider"]}}) }
 	telemetry := dict_get(value, "telemetry", {})
@@ -10,7 +11,7 @@ export func otel_payload(command, value, service_name, deterministic) {
 	for field in ["truncated", "cache_status", "cost_class"] { if has_key(telemetry, field) { attributes = push(attributes, {"key": "searchbridge." + field, "value": {"stringValue": to_string(telemetry[field])}}) } }
 	mut timestamp := to_string(current_timestamp()) + "000000"; if deterministic { timestamp = "0" }
 	resource := {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]}
-	return {"resourceSpans": [{"resource": resource, "scopeSpans": [{"scope": {"name": "searchbridge"}, "spans": [{"traceId": substring(sha256(command + timestamp), 0, 32), "spanId": substring(sha256(timestamp + command), 0, 16), "name": "searchbridge." + command, "kind": 1, "startTimeUnixNano": timestamp, "endTimeUnixNano": timestamp, "attributes": attributes}]}]}], "resourceMetrics": [{"resource": resource, "scopeMetrics": [{"scope": {"name": "searchbridge"}, "metrics": metrics}]}]}
+	mut trace_id := substring(sha256(command + timestamp), 0, 32); if dict_get(provenance, "trace_id", "") != "" { trace_id = provenance["trace_id"] }; return {"resourceSpans": [{"resource": resource, "scopeSpans": [{"scope": {"name": "searchbridge"}, "spans": [{"traceId": trace_id, "spanId": substring(sha256(timestamp + command + run_id), 0, 16), "name": "searchbridge." + command, "kind": 1, "startTimeUnixNano": timestamp, "endTimeUnixNano": timestamp, "attributes": attributes}]}]}], "resourceMetrics": [{"resource": resource, "scopeMetrics": [{"scope": {"name": "searchbridge"}, "metrics": metrics}]}]}
 }
 
 export func validate_otel_privacy(payload) {

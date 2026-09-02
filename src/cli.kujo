@@ -1,4 +1,4 @@
-from src.core import VERSION, failure, clean_error, dict_get, utf8_size, csv_values, query_fingerprint
+from src.core import VERSION, failure, clean_error, dict_get, utf8_size, csv_values, query_fingerprint, run_identifier, provenance_record
 from src.commands import static_command, command_search_performance, command_analytics, command_inspect, command_pagespeed, command_crux, command_backlinks, command_keywords, command_submit
 from src.config import load_profile, environment_overrides
 from src.adapters import adapter_conformance_report, run_signed_adapter
@@ -139,22 +139,40 @@ export func prepare_options(command, tokens) {
 	return validate_command_options(command, options)
 }
 
+func invocation_capability(command, options) {
+	if includes(["fetch", "adapter-run"], command) { return options["capability"] }
+	return command_capability(command)
+}
+
+func finalize_result(command, options, result) {
+	if !result["ok"] || type(result["value"]) != "dict" { return result }
+	value := result["value"]; schema := dict_get(value, "schema", "")
+	if !includes(["searchbridge.result/v1", "searchbridge.multi-result/v1", "searchbridge.batch/v1", "searchbridge.evidence-query/v1"], schema) { return result }
+	capability := dict_get(value, "capability", invocation_capability(command, options)); mut parents := dict_get(options, "parent_run_ids", [])
+	for parent in dict_get(value, "parent_run_ids", []) { if !includes(parents, parent) { parents = push(parents, parent) } }
+	replay_run_id := dict_get(dict_get(value, "telemetry", {}), "replay_run_id", ""); if replay_run_id != "" && !includes(parents, replay_run_id) { parents = push(parents, replay_run_id) }
+	if schema == "searchbridge.result/v1" && has_key(value, "query") == 0 { value["query"] := {"fingerprint": query_fingerprint(options, capability)} }
+	value["provenance"] := provenance_record(options, command, capability, parents)
+	return {"ok": true, "value": value}
+}
+
 export func dispatch(command, options) {
+	capability := invocation_capability(command, options); options["invocation_command"] := command; options["run_id"] := run_identifier(options, command, capability); options["query_fingerprint"] := query_fingerprint(options, capability)
 	if command == "adapter-conformance" { return {"ok": true, "value": adapter_conformance_report()} }
-	if command == "adapter-run" { options["current_capability"] := options["capability"]; return run_signed_adapter(options) }
-	if command == "evidence-query" { return query_evidence(options) }
-	if command == "batch" { return command_batch(options) }
-	if command == "fetch" { return command_fetch(options) }
+	if command == "adapter-run" { options["current_capability"] := options["capability"]; return finalize_result(command, options, run_signed_adapter(options)) }
+	if command == "evidence-query" { return finalize_result(command, options, query_evidence(options)) }
+	if command == "batch" { return finalize_result(command, options, command_batch(options)) }
+	if command == "fetch" { return finalize_result(command, options, command_fetch(options)) }
 	if includes(["doctor", "capabilities", "providers", "agent-catalog", "version"], command) { return static_command(command, options["deterministic"]) }
 	options["current_capability"] := command_capability(command)
 	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered }; options["adapter_version"] = adapters()[options["provider"]]["adapter_version"] }
-	if command == "search-performance" { return command_search_performance(options) }
-	if command == "analytics" { return command_analytics(options) }
-	if command == "inspect-url" { return command_inspect(options) }
-	if command == "pagespeed" { return command_pagespeed(options) }
-	if command == "crux" { return command_crux(options) }
-	if command == "backlinks" { return command_backlinks(options) }
-	if command == "keyword-data" { return command_keywords(options) }
+	if command == "search-performance" { return finalize_result(command, options, command_search_performance(options)) }
+	if command == "analytics" { return finalize_result(command, options, command_analytics(options)) }
+	if command == "inspect-url" { return finalize_result(command, options, command_inspect(options)) }
+	if command == "pagespeed" { return finalize_result(command, options, command_pagespeed(options)) }
+	if command == "crux" { return finalize_result(command, options, command_crux(options)) }
+	if command == "backlinks" { return finalize_result(command, options, command_backlinks(options)) }
+	if command == "keyword-data" { return finalize_result(command, options, command_keywords(options)) }
 	if command == "submit" { return command_submit(options) }
 	return failure("unknown command: " + command)
 }
@@ -218,7 +236,7 @@ func command_fetch(options) {
 			if response_bytes_used + provider_response_bytes > 8388608 { results = push(results, {"provider": provider, "ok": false, "error": {"code": "global_response_budget_exhausted", "retryable": false}}); failed = failed + 1; calls_used = calls_used + calls; pages_used = pages_used + pages; polls_used = polls_used + polls; provider_units_used = provider_units_used + charged_units; response_bytes_used = response_bytes_used + provider_response_bytes; continue }
 			if value_bytes > remaining_output_bytes { results = push(results, {"provider": provider, "ok": false, "error": {"code": "global_output_budget_exhausted", "retryable": false}}); failed = failed + 1; calls_used = calls_used + calls; pages_used = pages_used + pages; polls_used = polls_used + polls; provider_units_used = provider_units_used + charged_units; response_bytes_used = response_bytes_used + dict_get(telemetry, "response_bytes", 0); continue }
 			total_rows = total_rows + len(value["rows"]); calls_used = calls_used + calls; retries_used = retries_used + dict_get(telemetry, "retries", 0); pages_used = pages_used + pages; polls_used = polls_used + polls; provider_units_used = provider_units_used + charged_units; response_bytes_used = response_bytes_used + provider_response_bytes; result_bytes_used = result_bytes_used + value_bytes
-			results = push(results, {"provider": provider, "ok": true, "value": value}); succeeded = succeeded + 1
+			finalized := finalize_result("fetch", provider_options, {"ok": true, "value": value}); results = push(results, {"provider": provider, "ok": true, "value": finalized["value"]}); succeeded = succeeded + 1
 		} else {
 			if !options["fixture"] { calls_used = calls_used + provider_options["max_calls"]; provider_units_used = provider_units_used + estimated_units }; pages_used = pages_used + provider_options["max_pages"]; if async_operation { polls_used = polls_used + provider_options["max_polls"] }
 			results = push(results, {"provider": provider, "ok": false, "error": {"code": "provider_failed", "retryable": false, "message": clean_error(result["error"])}}); failed = failed + 1
@@ -247,7 +265,7 @@ func command_batch(options) {
 		name := trim(raw)
 		if name == "" { continue }
 		if !includes(["search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data"], name) { return failure("batch only accepts independent read commands") }
-		mut item_options := {}; for key in keys(options) { item_options[key] := options[key] }; item_options["provider"] = ""
+		mut item_options := {}; for key in keys(options) { item_options[key] := options[key] }; item_options["provider"] = ""; item_options["parent_run_ids"] = [options["run_id"]]; item_options["run_id"] = ""
 		item_options = apply_command_defaults(name, item_options); jobs = push(jobs, {"command": name, "options": item_options})
 	}
 	results := await parallel_map(jobs, batch_worker, options["max_concurrency"]); mut succeeded := 0; mut failed := 0
@@ -265,14 +283,15 @@ export func batch_worker_pool_probe() {
 export func render_output(value, options) {
 	if type(value) == "dict" && has_key(value, "_already_streamed") && value["_already_streamed"] { return {"ok": true, "value": "", "streamed": true} }
 	if options["format"] == "jsonl" && type(value) == "dict" && has_key(value, "rows") {
+		provenance := dict_get(value, "provenance", {})
 		mut total := 0
 		for row in value["rows"] {
-			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "row": row}) + "\n"
+			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "provenance": provenance, "row": row}) + "\n"
 			total = total + utf8_size(line); if total > options["max_output_bytes"] || total > options["max_output_tokens"] * 4 { return failure("output budget exceeded (" + to_string(total) + " bytes)") }
 		}
 		mut output_path := options["out"]; if output_path != "" { output_path = options["out"] + ".searchbridge-tmp-" + to_string(current_timestamp()); write_file(output_path, "", true) }
 		for row in value["rows"] {
-			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "row": row}) + "\n"
+			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "provenance": provenance, "row": row}) + "\n"
 			if options["out"] != "" { append_file(output_path, line) } else { print(trim_end(line)) }
 		}
 		if options["out"] != "" { try { if file_exists(options["out"]) { delete_file(options["out"]) }; rename_file(output_path, options["out"]) } except publish_error { if file_exists(output_path) { delete_file(output_path) }; return failure("could not publish output atomically") } }

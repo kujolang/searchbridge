@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchBridgeProvenance { pub schema: String, pub run_id: String, pub trace_id: String, pub query_fingerprint: String, pub parent_run_ids: Vec<String>, pub contract_version: String }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricObservation { pub metric_id: String, pub semantic_family: String, pub value: Value, pub unit: String, pub estimated: bool, pub definition_version: String, pub comparison_key: Option<String>, pub source_field: String }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +15,8 @@ pub struct SearchBridgeResult {
     pub mode: String,
     pub retrieved_at: String,
     pub rows: Vec<Value>,
+    #[serde(default)]
+    pub provenance: Option<SearchBridgeProvenance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,7 +28,9 @@ pub struct SearchBridgeBatch {
     pub succeeded: u32,
     pub failed: u32,
     pub results: Vec<Value>,
+    #[serde(default)]
+    pub provenance: Option<SearchBridgeProvenance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchBridgeMultiResult { pub schema: String, pub capability: String, pub routing: Value, pub budget: Value, pub succeeded: u32, pub failed: u32, pub results: Vec<Value> }
+pub struct SearchBridgeMultiResult { pub schema: String, pub capability: String, pub routing: Value, pub budget: Value, pub succeeded: u32, pub failed: u32, pub results: Vec<Value>, #[serde(default)] pub provenance: Option<SearchBridgeProvenance> }

@@ -28,16 +28,16 @@ export func read_protected_cached_response(cache_dir, request_hash, max_age_seco
 			key_variable := dict_get(backend, "encryption_key_env", "")
 			if key_variable == "" || env(key_variable) == "" { return failure("encrypted replay requires its configured key environment variable") }
 			ciphertext := dict_get(record, "ciphertext", ""); integrity := dict_get(record, "integrity", ""); key := env(key_variable)
-			integrity_material := request_hash + "\n" + dict_get(record, "stored_at", "") + "\n" + to_string(dict_get(record, "stored_at_ms", 0)) + "\n" + ciphertext
+			provenance := dict_get(record, "provenance", {}); mut integrity_material := request_hash + "\n" + dict_get(record, "stored_at", "") + "\n" + to_string(dict_get(record, "stored_at_ms", 0)) + "\n" + ciphertext; if len(keys(provenance)) > 0 { integrity_material = integrity_material + "\n" + to_json(provenance) }
 			if ciphertext == "" || hmac_sha256(key, integrity_material) != integrity { return failure("cache integrity verification failed") }
 			plaintext := aes_decrypt(ciphertext, key)
 			if type(plaintext) != "string" { return failure("cache decryption failed") }
 			payload := parse_json(plaintext)
-			return success({"status": dict_get(payload, "status", 200), "body": dict_get(payload, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms, "protected": true})
+			return success({"status": dict_get(payload, "status", 200), "body": dict_get(payload, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms, "protected": true, "provenance": provenance})
 		}
 		if dict_get(backend, "require_encryption", false) { return failure("replay record is not encrypted") }
 		if dict_get(record, "schema", "") != "searchbridge.cache/v1" { return failure("invalid cache record") }
-		return success({"status": dict_get(record, "status", 200), "body": dict_get(record, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms, "protected": false})
+		return success({"status": dict_get(record, "status", 200), "body": dict_get(record, "body", {}), "stored_at": dict_get(record, "stored_at", ""), "age_ms": age_ms, "protected": false, "provenance": dict_get(record, "provenance", {})})
 	} except cache_error { return failure("cache read failed: " + clean_error(cache_error)) }
 }
 
@@ -50,16 +50,17 @@ export func write_protected_cached_response(cache_dir, request_hash, status, bod
 	try {
 		if !path_is_dir(cache_dir) { create_dir(cache_dir) }
 		key_variable := dict_get(backend, "encryption_key_env", "")
+		provenance := dict_get(backend, "provenance", {})
 		if key_variable != "" {
 			key := env(key_variable); if key == "" { return failure("encrypted cache requires its configured key environment variable") }
 			ciphertext := aes_encrypt(to_json({"status": status, "body": body}), key)
 			if type(ciphertext) != "string" { return failure("cache encryption failed") }
-			integrity_material := request_hash + "\n" + now_text_value + "\n" + to_string(now_ms) + "\n" + ciphertext
-			record := {"schema": "searchbridge.cache/v2", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "ciphertext": ciphertext, "integrity": hmac_sha256(key, integrity_material)}
+			mut integrity_material := request_hash + "\n" + now_text_value + "\n" + to_string(now_ms) + "\n" + ciphertext; if len(keys(provenance)) > 0 { integrity_material = integrity_material + "\n" + to_json(provenance) }
+			record := {"schema": "searchbridge.cache/v2", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "ciphertext": ciphertext, "provenance": provenance, "integrity": hmac_sha256(key, integrity_material)}
 			write_file_atomic(cache_path(cache_dir, request_hash), to_json(record) + "\n", true)
 			return success(true)
 		}
-		record := {"schema": "searchbridge.cache/v1", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "status": status, "body": body}
+		record := {"schema": "searchbridge.cache/v1", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "status": status, "body": body, "provenance": provenance}
 		write_file_atomic(cache_path(cache_dir, request_hash), to_json(record) + "\n", true)
 		return success(true)
 	} except cache_error { return failure("cache write failed: " + clean_error(cache_error)) }

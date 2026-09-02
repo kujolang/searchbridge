@@ -17,7 +17,7 @@ provider behavior, not discover missing core architecture.
   when every selected provider fails.
 - [x] Fingerprint every normalized, result-affecting query input while excluding
   credentials, output locations, and other execution-only values.
-- [ ] Add safe run and provenance identifiers across results, replay records,
+- [x] Add safe run and provenance identifiers across results, replay records,
   evidence-query output, SDK metadata, and OTLP exports.
 
 ## 2. External adapter runtime and conformance

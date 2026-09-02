@@ -44,12 +44,12 @@ export func request_json(url, method, body, headers, policy, transport) {
 	mut allowed_replays := dict_get(policy, "replay_capabilities", [])
 	if type(allowed_replays) == "string" { allowed_replays = split(allowed_replays, ",") }
 	if cache_dir != "" && len(allowed_replays) > 0 && !includes(allowed_replays, capability) { return failure("cache/replay capability is not allowlisted") }
-	backend := {"encryption_key_env": dict_get(policy, "cache_encryption_key_env", ""), "require_encryption": dict_get(policy, "cache_require_encryption", false)}
+	backend := {"encryption_key_env": dict_get(policy, "cache_encryption_key_env", ""), "require_encryption": dict_get(policy, "cache_require_encryption", false), "provenance": {"run_id": dict_get(policy, "run_id", ""), "query_fingerprint": dict_get(policy, "query_fingerprint", "")}}
 	if cache_dir != "" {
 		cached := read_protected_cached_response(cache_dir, request_hash, dict_get(policy, "cache_max_age", 86400), current_timestamp(), backend)
 		if cached["ok"] {
 			value := cached["value"]
-			return success({"status": value["status"], "body": value["body"], "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": utf8_size(to_json(value["body"])), "cache_status": "hit", "provider_cost": {}}})
+			replay_run_id := dict_get(dict_get(value, "provenance", {}), "run_id", ""); return success({"status": value["status"], "body": value["body"], "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": utf8_size(to_json(value["body"])), "cache_status": "hit", "provider_cost": {}, "replay_run_id": replay_run_id}})
 		}
 		if dict_get(policy, "replay", false) { return failure("approved replay unavailable: " + cached["error"]) }
 	}

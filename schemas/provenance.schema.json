@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.kujolang.ai/searchbridge/provenance.v1.json",
+  "type": "object",
+  "required": ["schema", "run_id", "trace_id", "query_fingerprint", "parent_run_ids", "contract_version"],
+  "properties": {
+    "schema": {"const": "searchbridge.provenance/v1"},
+    "run_id": {"type": "string", "pattern": "^sb-[a-f0-9]{32}$"},
+    "trace_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "query_fingerprint": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "parent_run_ids": {"type": "array", "maxItems": 128, "items": {"type": "string", "pattern": "^sb-[a-f0-9]{32}$"}},
+    "contract_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
+  },
+  "additionalProperties": false
+}

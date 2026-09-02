@@ -1,4 +1,4 @@
-from src.core import VERSION, RESULT_SCHEMA, SUBMISSION_SCHEMA, providers, includes, now_text, failure, success, fixture, envelope, capability_report, csv_values, take, query_encode, validate_submission_urls, normalize_submission_url, normalize_gsc, normalize_analytics, dict_get, utf8_size
+from src.core import VERSION, RESULT_SCHEMA, SUBMISSION_SCHEMA, providers, includes, now_text, failure, success, fixture, envelope, capability_report, csv_values, take, query_encode, validate_submission_urls, normalize_submission_url, normalize_gsc, normalize_analytics, dict_get, utf8_size, provenance_record
 from src.transport import request_json
 from src.registry import agent_catalog
 from src.protocols import cost_preflight
@@ -15,7 +15,7 @@ func provider_telemetry(result, rows, options, cost_class) {
 	mut cache_status := "disabled"; if options["fixture"] { cache_status = "fixture" }
 	mut transport := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": cache_status, "provider_cost": {}}
 	if type(result["value"]) == "dict" && has_key(result["value"], "telemetry") { transport = result["value"]["telemetry"] }
-	return {"latency_ms": transport["latency_ms"], "attempts": transport["attempts"], "retries": transport["retries"], "retry_delay_ms": transport["retry_delay_ms"], "response_bytes": transport["response_bytes"], "cache_status": transport["cache_status"], "rows": rows, "truncated": rows >= options["max_total_rows"], "cost_class": cost_class, "provider_cost": transport["provider_cost"]}
+	mut output := {"latency_ms": transport["latency_ms"], "attempts": transport["attempts"], "retries": transport["retries"], "retry_delay_ms": transport["retry_delay_ms"], "response_bytes": transport["response_bytes"], "cache_status": transport["cache_status"], "rows": rows, "truncated": rows >= options["max_total_rows"], "cost_class": cost_class, "provider_cost": transport["provider_cost"]}; if has_key(transport, "replay_run_id") && transport["replay_run_id"] != "" { output["replay_run_id"] = transport["replay_run_id"] }; return output
 }
 
 func add_operations(envelope_value, result, options, strategy, pages, cost_class) {
@@ -34,8 +34,9 @@ func page_stream(options) {
 
 func stream_page(stream, envelope_value, options) {
 	if !stream["enabled"] { return success(stream) }
+	provenance := provenance_record(options, dict_get(options, "invocation_command", "fetch"), envelope_value["capability"], dict_get(options, "parent_run_ids", []))
 	for row in envelope_value["rows"] {
-		line := to_json({"schema": "searchbridge.row/v1", "capability": envelope_value["capability"], "provider": envelope_value["provider"], "row": row}) + "\n"
+		line := to_json({"schema": "searchbridge.row/v1", "capability": envelope_value["capability"], "provider": envelope_value["provider"], "provenance": provenance, "row": row}) + "\n"
 		stream["bytes"] := stream["bytes"] + utf8_size(line); stream["rows"] := stream["rows"] + 1
 		if stream["bytes"] > options["max_output_bytes"] || stream["bytes"] > options["max_output_tokens"] * 4 { delete_file(stream["path"]); return failure("output budget exceeded while streaming provider pages") }
 		append_file(stream["path"], line)
@@ -53,6 +54,7 @@ func merge_transport_telemetry(total, result) {
 	item := result["value"]["telemetry"]
 	for field in ["attempts", "retries", "latency_ms", "retry_delay_ms", "response_bytes"] { total[field] := dict_get(total, field, 0) + item[field] }
 	total["cache_status"] := item["cache_status"]; total["provider_cost"] := item["provider_cost"]
+	if has_key(item, "replay_run_id") && item["replay_run_id"] != "" { total["replay_run_id"] = item["replay_run_id"] }
 	return total
 }
 
