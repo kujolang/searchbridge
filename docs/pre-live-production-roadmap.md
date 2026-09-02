@@ -63,18 +63,18 @@ provider behavior, not discover missing core architecture.
   generated from the same catalog and preserving submission confirmation.
 - [x] Package usable TypeScript, Rust, and Go SDK artifacts with typed errors,
   streaming readers, validation helpers, examples, checksums, and provenance.
-- [ ] Build reproducible, checksum-verified runtime bundles for every supported
+- [x] Build reproducible, checksum-verified runtime bundles for every supported
   platform and test clean/offline installation.
 - [x] Publish agent, CI, replay, join, external-adapter, upgrade, rollback,
   recovery, and provider-outage guidance.
 
 ## 6. Repository and release governance
 
-- [ ] Add `SECURITY.md`, `CODEOWNERS`, protected-branch requirements, secret
+- [x] Add `SECURITY.md`, `CODEOWNERS`, protected-branch requirements, secret
   scanning, dependency alerts, code scanning, and protected release tags.
-- [ ] Run the complete suite with the exact supported Kujo runtime and retain
+- [x] Run the complete suite with the exact supported Kujo runtime and retain
   cross-platform, benchmark, SBOM, checksum, signature, and provenance evidence.
-- [ ] Verify the release candidate from a clean checkout/environment.
+- [x] Verify the release candidate from a clean checkout/environment.
 
 ## Final provider-dependent gate
 
