@@ -20,6 +20,7 @@
 - Added indexed SQLite spill joins with explicit input/disk/row bounds, deterministic cleanup, strategy telemetry, and nested-join parity tests.
 - Added guarded cache audit, v1 encryption migration, key rotation, retention cleanup, corruption quarantine, and owner-only permission qualification.
 - Added executable adapter runtime ranges, same-major compatibility enforcement, deprecation/removal rules, and migration boundary fixtures.
+- Removed the unimplemented `crawl.data` row contract from the 0.4 public SDK and documentation instead of advertising a capability with no executor.
 
 ## 0.3.0 — 2026-08-12
 

@@ -49,7 +49,7 @@ provider behavior, not discover missing core architecture.
 
 - [x] Establish schema/adapter compatibility ranges, deprecation rules, and
   migration fixtures.
-- [ ] Decide whether `crawl.data` becomes executable or is removed from the
+- [x] Decide whether `crawl.data` becomes executable or is removed from the
   advertised public contract before release.
 - [ ] Complete a threat model, repository security scan, and fuzz/property tests
   for URL, JSON, CSV, canonicalization, signature, cache, and redaction paths.

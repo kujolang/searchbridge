@@ -17,7 +17,6 @@ SearchBridge publishes one JSON Schema and canonical example for each normalized
 | `domain.visibility` | `schemas/rows/domain-visibility.schema.json` | `examples/rows/domain-visibility.json` |
 | `traffic.estimate` | `schemas/rows/traffic-estimate.schema.json` | `examples/rows/traffic-estimate.json` |
 | `edge.analytics` | `schemas/rows/edge-analytics.schema.json` | `examples/rows/edge-analytics.json` |
-| `crawl.data` | `schemas/rows/crawl-data.schema.json` | `examples/rows/crawl-data.json` |
 
 Dynamic GA4 keys are constrained to string-or-null values because the requested dimensions and metrics determine their names. Generate downstream types from the schema matching the envelope's `capability`.
 

@@ -66,7 +66,7 @@ agent_catalog_result := dispatch("agent-catalog", options_for("agent-catalog", [
 check(agent_catalog_result["ok"] && json_schema_validate(agent_catalog_result["value"], runtime_schema("schemas/agent-catalog.schema.json"))["valid"], "agent-facing catalog is generated from registry metadata")
 agent_tools := parse_json(read_file("integrations/searchbridge-tools.json"))
 check(utf8_size(to_json(agent_tools)) <= 4096 && len(agent_tools["tools"]) == 4 && agent_tools["tools"][3]["input_schema"]["properties"]["act"]["const"], "agent tool surface is concise and preserves submission confirmation")
-for name in ["rank-tracking", "serp-results", "domain-visibility", "traffic-estimate", "edge-analytics", "crawl-data"] {
+for name in ["rank-tracking", "serp-results", "domain-visibility", "traffic-estimate", "edge-analytics"] {
 	row := parse_json(read_file("examples/rows/" + name + ".json")); schema := runtime_schema("schemas/rows/" + name + ".schema.json")
 	check(json_schema_validate(row, schema)["valid"], name + " canonical example satisfies its row schema")
 	if has_key(row, "metrics") { for observation in row["metrics"] { check(json_schema_validate(observation, runtime_schema("schemas/metric-observation.schema.json"))["valid"], name + " metric observation satisfies shared schema") } }
