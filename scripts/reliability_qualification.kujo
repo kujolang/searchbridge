@@ -1,0 +1,15 @@
+from src.core import fixture, normalize_gsc
+from src.protocols import bounded_csv_parse, stream_synthetic_jsonl
+from src.transport import retry_contract_probe, circuit_contract_probe
+from src.adapters import external_pagination_contract_probe
+from src.cli import prepare_options, dispatch, batch_worker_pool_probe
+
+started := performance_now(); loaded := fixture("google-search-console"); if !loaded["ok"] { eprint(loaded["error"]); exit(1) }; mut i := 0; mut normalized_size := 0
+while i < 1000 { result := normalize_gsc(loaded["value"], ["date", "query", "page"], "sc-domain:example.com", "fixture", 1000, true); normalized_size = normalized_size + len(to_json(result)); i = i + 1 }
+soak_ms := performance_now() - started; if soak_ms > 60000 { eprint("fixture normalization soak exceeded 60 seconds"); exit(1) }
+csv := "keyword;volume\n" + repeat("keyword;1\n", 100000); csv_started := performance_now(); parsed := bounded_csv_parse(csv, 100000, 8, 256); csv_ms := performance_now() - csv_started; if !parsed["ok"] || len(parsed["value"]) != 100000 || csv_ms > 60000 { eprint("100,000-row CSV load qualification failed"); exit(1) }
+stream_path := "/tmp/searchbridge-reliability-" + to_string(current_timestamp()) + ".jsonl"; streamed := stream_synthetic_jsonl(stream_path, 100000, 33554432); if !streamed["ok"] || streamed["value"]["rows"] != 100000 || streamed["value"]["retained_rows"] > 1000 || !streamed["value"]["atomic"] { eprint("100,000-row streaming qualification failed"); exit(1) }; delete_file(stream_path)
+pool := batch_worker_pool_probe(); if !pool["overlapped"] || pool["ordered"] != [0, 1, 2] { eprint("worker-pool load qualification failed"); exit(1) }
+cancel_path := "/tmp/searchbridge-qualification-cancel-" + to_string(current_timestamp()); write_file(cancel_path, "cancel", true); prepared := prepare_options("batch", ["--fixture", "--offline", "--deterministic", "--commands", "pagespeed,crux", "--cancel-file", cancel_path]); cancelled := dispatch("batch", prepared["value"]); delete_file(cancel_path); if !cancelled["ok"] || cancelled["value"]["failed"] != 2 { eprint("cancellation qualification failed"); exit(1) }
+retry := retry_contract_probe(); circuit := circuit_contract_probe(); protocols := external_pagination_contract_probe(); if !retry["retried"]["ok"] || circuit["opened"]["ok"] || !protocols["cursor"]["ok"] || !protocols["async"]["ok"] { eprint("fault-injection qualification failed"); exit(1) }
+print(to_json({"schema": "searchbridge.reliability-qualification/v1", "soak_iterations": 1000, "soak_ms": soak_ms, "normalized_bytes": normalized_size, "load_rows": 100000, "csv_ms": csv_ms, "stream_atomic": true, "worker_pool_overlapped": true, "cancellation": true, "fault_injection": true}))
