@@ -1,0 +1,232 @@
+{
+  "schema": "searchbridge.adapter-contract-proposal/v1",
+  "contract": "searchbridge-adapter",
+  "contract_version": "2.0.0-proposal",
+  "manifest_runtime_fields": [
+    "id",
+    "adapter_version",
+    "provider_api_version",
+    "minimum_searchbridge_version",
+    "capabilities",
+    "operations",
+    "credentials",
+    "cost_class",
+    "streaming",
+    "fixtures",
+    "health",
+    "publisher",
+    "signature"
+  ],
+  "adapter": {
+    "id": "example-provider",
+    "adapter_version": "1.0.0",
+    "provider_api_version": "v1",
+    "minimum_searchbridge_version": "0.4.0",
+    "capabilities": [
+      {
+        "id": "serp.results",
+        "contract": "serp.results/v1",
+        "class": "read"
+      }
+    ],
+    "credentials": [
+      {
+        "name": "SEARCHBRIDGE_EXAMPLE_TOKEN",
+        "mode": "bearer",
+        "bind": {
+          "endpoint_template": "https://api.example.invalid/v1/serp"
+        }
+      }
+    ],
+    "cost_class": "metered",
+    "streaming": "page-jsonl",
+    "retention": {
+      "max_cache_age_seconds": 86400,
+      "source": "provider-terms-url-or-unknown"
+    },
+    "operations": [
+      {
+        "id": "organic-serp",
+        "capability": "serp.results",
+        "class": "read",
+        "request": {
+          "method": "POST",
+          "endpoint_template": "https://api.example.invalid/v1/serp",
+          "allowed_query_fields": [],
+          "body_template": {
+            "keyword": {
+              "slot": "query.keyword"
+            },
+            "location": {
+              "slot": "query.location"
+            }
+          },
+          "credential": "SEARCHBRIDGE_EXAMPLE_TOKEN",
+          "redirects": "deny"
+        },
+        "response": {
+          "format": "json",
+          "rows_pointer": "/results",
+          "max_bytes": 8388608
+        },
+        "pagination": {
+          "strategy": "cursor",
+          "request_slot": "body.cursor",
+          "response_pointer": "/next_cursor",
+          "end": "null-or-empty",
+          "reject_repeated_cursor": true
+        },
+        "normalization": {
+          "row_contract": "serp.results/v1",
+          "mapping": [
+            {
+              "target": "query",
+              "source": "$query.keyword",
+              "coerce": "string"
+            },
+            {
+              "target": "rank_absolute",
+              "source": "/position",
+              "coerce": "integer"
+            },
+            {
+              "target": "url",
+              "source": "/url",
+              "coerce": "uri-or-null"
+            },
+            {
+              "target": "title",
+              "source": "/title",
+              "coerce": "string-or-null"
+            }
+          ],
+          "unknown_fields": "discard"
+        },
+        "cost": {
+          "preflight": "none",
+          "unit_name": "request",
+          "estimate": "one-per-call"
+        }
+      }
+    ],
+    "fixtures": [
+      {
+        "operation": "organic-serp",
+        "request_sha256": "sha256-placeholder",
+        "response_sha256": "sha256-placeholder",
+        "license": "synthetic"
+      }
+    ],
+    "health": {
+      "kind": "credential-and-fixture",
+      "live_operation": null
+    },
+    "publisher": {
+      "key_fingerprint": "sha256-placeholder",
+      "name": "display-only"
+    },
+    "signature": {
+      "algorithm": "rsa-sha256",
+      "canonicalization": "jcs",
+      "package_digest": "sha256-placeholder",
+      "detached_file": "adapter.sig"
+    }
+  },
+  "runtime_enums": {
+    "class": [
+      "read",
+      "write"
+    ],
+    "external_allowed_class": [
+      "read"
+    ],
+    "auth_mode": [
+      "none",
+      "bearer",
+      "header",
+      "basic",
+      "query",
+      "body"
+    ],
+    "response_format": [
+      "json",
+      "csv",
+      "graphql-json"
+    ],
+    "pagination_strategy": [
+      "none",
+      "offset-limit",
+      "page-size",
+      "cursor",
+      "provider-list-window",
+      "async-task"
+    ],
+    "cost_class": [
+      "free",
+      "quota",
+      "metered",
+      "expensive",
+      "unknown"
+    ],
+    "coercion": [
+      "string",
+      "string-or-null",
+      "number",
+      "number-or-null",
+      "integer",
+      "integer-or-null",
+      "boolean",
+      "boolean-or-null",
+      "uri-or-null",
+      "metric-observation"
+    ]
+  },
+  "core_owned": [
+    "network_io",
+    "endpoint_validation",
+    "credential_resolution",
+    "retry",
+    "pagination_budget",
+    "task_poll_budget",
+    "response_bounds",
+    "parsing",
+    "cache_replay",
+    "retention_enforcement",
+    "cost_policy",
+    "telemetry",
+    "output_budget",
+    "mutation_confirmation"
+  ],
+  "forbidden_external_features": [
+    "arbitrary_code",
+    "shell",
+    "filesystem",
+    "dynamic_import",
+    "raw_graphql",
+    "unbounded_templates",
+    "custom_retry_code",
+    "writes",
+    "credential_values",
+    "http_endpoints",
+    "unvalidated_redirects"
+  ],
+  "conformance_required": [
+    "manifest",
+    "discovery",
+    "request_golden",
+    "normalization_golden",
+    "row_schema",
+    "pagination",
+    "retry",
+    "rate_limit",
+    "cost_budget",
+    "redaction",
+    "endpoint_allowlist",
+    "signature_package_digest",
+    "offline",
+    "deterministic",
+    "large_result",
+    "health",
+    "external_write_rejection"
+  ]
+}

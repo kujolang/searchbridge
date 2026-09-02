@@ -1,0 +1,320 @@
+{
+  "schema": "searchbridge.provider-expansion.capability-matrix/v1",
+  "researched_at": "2026-09-02",
+  "capabilities": [
+    {
+      "id": "search.performance",
+      "status": "existing",
+      "description": "Verified search-engine property performance",
+      "class": "read",
+      "minimum_fields": [
+        "dimensions",
+        "clicks",
+        "impressions",
+        "ctr",
+        "position"
+      ],
+      "providers": [
+        "google-search-console",
+        "bing-webmaster"
+      ],
+      "not_equivalent_to": [
+        "rank.tracking",
+        "serp.results"
+      ]
+    },
+    {
+      "id": "analytics",
+      "status": "existing",
+      "description": "First-party observed web analytics",
+      "class": "read",
+      "minimum_fields": [
+        "dimensions",
+        "metrics"
+      ],
+      "providers": [
+        "google-analytics-4",
+        "plausible",
+        "matomo",
+        "fathom"
+      ],
+      "not_equivalent_to": [
+        "traffic.estimate",
+        "edge.analytics"
+      ]
+    },
+    {
+      "id": "url.inspection",
+      "status": "existing",
+      "description": "Provider inspection of a single URL",
+      "class": "read",
+      "minimum_fields": [
+        "url",
+        "verdict"
+      ],
+      "providers": [
+        "google-search-console"
+      ],
+      "not_equivalent_to": [
+        "index.submission"
+      ]
+    },
+    {
+      "id": "page.performance",
+      "status": "existing",
+      "description": "Laboratory page performance evidence",
+      "class": "read",
+      "minimum_fields": [
+        "url",
+        "strategy",
+        "lab",
+        "metrics"
+      ],
+      "providers": [
+        "pagespeed-insights"
+      ],
+      "not_equivalent_to": [
+        "field.performance"
+      ]
+    },
+    {
+      "id": "field.performance",
+      "status": "existing",
+      "description": "Population field performance evidence",
+      "class": "read",
+      "minimum_fields": [
+        "url",
+        "form_factor",
+        "metrics",
+        "collection_period"
+      ],
+      "providers": [
+        "crux"
+      ],
+      "not_equivalent_to": [
+        "page.performance"
+      ]
+    },
+    {
+      "id": "backlinks",
+      "status": "existing",
+      "description": "Observed provider backlink records",
+      "class": "read",
+      "minimum_fields": [
+        "source_url",
+        "target_url"
+      ],
+      "providers": [
+        "ahrefs",
+        "bing-webmaster",
+        "semrush",
+        "moz",
+        "dataforseo",
+        "majestic"
+      ],
+      "not_equivalent_to": [
+        "domain.visibility"
+      ]
+    },
+    {
+      "id": "keyword.data",
+      "status": "existing",
+      "description": "Keyword estimates, attributes and trends",
+      "class": "read",
+      "minimum_fields": [
+        "keyword",
+        "locale",
+        "metrics"
+      ],
+      "providers": [
+        "ahrefs",
+        "semrush",
+        "dataforseo",
+        "moz",
+        "google-ads-keyword-planner",
+        "google-trends"
+      ],
+      "not_equivalent_to": [
+        "search.performance"
+      ]
+    },
+    {
+      "id": "index.submission",
+      "status": "existing",
+      "description": "Explicit provider submission receipt",
+      "class": "write",
+      "minimum_fields": [
+        "status",
+        "received",
+        "indexed",
+        "urls"
+      ],
+      "providers": [
+        "indexnow",
+        "bing-webmaster"
+      ],
+      "not_equivalent_to": [
+        "url.inspection"
+      ]
+    },
+    {
+      "id": "rank.tracking",
+      "status": "proposed",
+      "description": "Account/project keyword rank time series",
+      "class": "read",
+      "minimum_fields": [
+        "keyword",
+        "target",
+        "engine",
+        "locale",
+        "device",
+        "observed_at",
+        "rank",
+        "ranking_url"
+      ],
+      "providers": [
+        "semrush",
+        "dataforseo",
+        "accuranker",
+        "se-ranking",
+        "searchatlas"
+      ],
+      "not_equivalent_to": [
+        "search.performance",
+        "serp.results"
+      ]
+    },
+    {
+      "id": "serp.results",
+      "status": "proposed",
+      "description": "Point-in-time ordered search result snapshot",
+      "class": "read",
+      "minimum_fields": [
+        "query",
+        "engine",
+        "locale",
+        "captured_at",
+        "result_type",
+        "rank_absolute",
+        "url"
+      ],
+      "providers": [
+        "serpapi",
+        "dataforseo"
+      ],
+      "not_equivalent_to": [
+        "rank.tracking",
+        "search.performance"
+      ]
+    },
+    {
+      "id": "domain.visibility",
+      "status": "proposed",
+      "description": "Provider-specific domain visibility and authority observations",
+      "class": "read",
+      "minimum_fields": [
+        "target",
+        "scope",
+        "locale",
+        "observed_at",
+        "metrics"
+      ],
+      "providers": [
+        "semrush",
+        "moz",
+        "similarweb",
+        "sistrix",
+        "ahrefs"
+      ],
+      "not_equivalent_to": [
+        "traffic.estimate"
+      ]
+    },
+    {
+      "id": "traffic.estimate",
+      "status": "proposed",
+      "description": "Third-party modeled traffic and engagement estimates",
+      "class": "read",
+      "minimum_fields": [
+        "target",
+        "geography",
+        "device",
+        "period",
+        "metrics"
+      ],
+      "providers": [
+        "similarweb",
+        "semrush",
+        "dataforseo"
+      ],
+      "not_equivalent_to": [
+        "analytics",
+        "edge.analytics"
+      ]
+    },
+    {
+      "id": "edge.analytics",
+      "status": "proposed",
+      "description": "First-party edge/network request analytics",
+      "class": "read",
+      "minimum_fields": [
+        "scope",
+        "dimensions",
+        "metrics"
+      ],
+      "providers": [
+        "cloudflare-analytics"
+      ],
+      "not_equivalent_to": [
+        "analytics",
+        "traffic.estimate"
+      ]
+    },
+    {
+      "id": "crawl.data",
+      "status": "proposed",
+      "description": "Provider crawl facts and source-attributed findings",
+      "class": "read",
+      "minimum_fields": [
+        "run_id",
+        "url",
+        "crawled_at",
+        "facts"
+      ],
+      "providers": [
+        "dataforseo",
+        "semrush",
+        "searchatlas"
+      ],
+      "not_equivalent_to": [
+        "page.performance"
+      ]
+    }
+  ],
+  "excluded": [
+    {
+      "id": "web.analytics",
+      "reason": "Existing analytics capability owns first-party observed analytics."
+    },
+    {
+      "id": "domain.authority",
+      "reason": "Vendor authority scores are incompatible metric observations, not a capability."
+    },
+    {
+      "id": "keyword.volume",
+      "reason": "A metric family/query facet under keyword.data."
+    },
+    {
+      "id": "keyword.difficulty",
+      "reason": "A provider-specific metric family under keyword.data."
+    },
+    {
+      "id": "site.audit",
+      "reason": "Implies interpretation; raw provider crawl evidence belongs in crawl.data."
+    },
+    {
+      "id": "index.coverage",
+      "reason": "No stable bulk API contract is currently approved."
+    }
+  ]
+}
