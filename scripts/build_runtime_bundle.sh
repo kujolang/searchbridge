@@ -17,7 +17,7 @@ extension=""; if [[ "$PLATFORM" == windows-x64 ]]; then extension=".exe"; fi
 cp "$KUJO_RUNTIME" "$STAGE/runtime/kujo$extension"
 chmod 755 "$STAGE/runtime/kujo$extension"
 source_commit="$(git -C "$ROOT" rev-parse HEAD)"
-runtime_sha="$(shasum -a 256 "$KUJO_RUNTIME" | awk '{print $1}')"
+runtime_sha="$(bash "$ROOT/scripts/sha256.sh" "$KUJO_RUNTIME" | awk '{print $1}')"
 kujo_commit="${KUJO_COMMIT:-unknown}"
 node -e 'const fs=require("fs"); const [path,version,platform,source,kujo,sha]=process.argv.slice(1); fs.writeFileSync(path,JSON.stringify({schema:"searchbridge.runtime-bundle/v1",version,platform,source_commit:source,kujo_commit:kujo,runtime_sha256:sha})+"\n",{mode:0o600});' "$STAGE/BUNDLE-MANIFEST.json" "$VERSION" "$PLATFORM" "$source_commit" "$kujo_commit" "$runtime_sha"
 find "$STAGE" -exec touch -t 202601010000 {} +
@@ -30,7 +30,7 @@ gzip -n -c "$ARCHIVE.tmp" > "$ARCHIVE"
 rm "$ARCHIVE.tmp"
 (
   cd "$OUTPUT"
-  shasum -a 256 "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256"
+  bash "$ROOT/scripts/sha256.sh" "$(basename "$ARCHIVE")" > "$(basename "$ARCHIVE").sha256"
 )
 rm -rf "$WORK"
 printf '%s\n' "$ARCHIVE"

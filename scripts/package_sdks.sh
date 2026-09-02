@@ -26,7 +26,7 @@ mkdir -p "$OUTPUT"
 
 (
   cd "$OUTPUT"
-  shasum -a 256 ./*.tgz ./*.crate ./*.tar.gz > SHA256SUMS
+  bash "$ROOT/scripts/sha256.sh" ./*.tgz ./*.crate ./*.tar.gz > SHA256SUMS
 )
 commit="$(git -C "$ROOT" rev-parse HEAD)"
 version="$(tr -d '\n' < "$ROOT/VERSION")"

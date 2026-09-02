@@ -38,6 +38,7 @@
 - Advanced every active CI, monitoring, live, bundle, and release pin to the exact Kujo runtime that enforces SearchBridge's network and filesystem policies.
 - Made runtime checksum sidecars portable after download and required CI to verify them from the artifact directory.
 - Rooted the aggregate release-candidate checksum manifest at its downloaded artifact directory and verify it before upload.
+- Added a portable SHA-256 helper so bundle and SDK packaging work with GNU `sha256sum` on Windows/Linux and `shasum` on macOS.
 
 ## 0.3.0 — 2026-08-12
 

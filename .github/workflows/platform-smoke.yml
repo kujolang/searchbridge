@@ -59,11 +59,12 @@ jobs:
             *) echo "unsupported runner ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
           esac
           archive="$(bash scripts/build_runtime_bundle.sh "$platform")"
-          first="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          first="$(bash scripts/sha256.sh "$archive" | awk '{print $1}')"
           archive="$(bash scripts/build_runtime_bundle.sh "$platform")"
-          second="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          second="$(bash scripts/sha256.sh "$archive" | awk '{print $1}')"
           test "$first" = "$second"
-          (cd "$(dirname "$archive")" && shasum -a 256 -c "$(basename "$archive").sha256")
+          checker="$PWD/scripts/sha256.sh"
+          (cd "$(dirname "$archive")" && bash "$checker" --check "$(basename "$archive").sha256")
           echo "BUNDLE_PATH=${archive#$PWD/}" >> "$GITHUB_ENV"
       - name: Offline POSIX bundle smoke
         if: runner.os != 'Windows'
