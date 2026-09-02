@@ -26,6 +26,7 @@
 - Added a repository threat model, security reporting policy, CODEOWNERS, Dependabot, pinned CodeQL/dependency/secret gates, and a machine-readable protected-branch policy.
 - Added a runnable dependency-free stdio MCP server generated from the agent catalog with fail-closed submission confirmation.
 - Upgraded the TypeScript, Rust, and Go contract types into packageable local CLI SDKs with typed errors, validators, JSONL readers, and examples.
+- Added deterministic self-contained runtime bundles and clean, network-free installation smoke tests across supported CI platforms.
 
 ## 0.3.0 — 2026-08-12
 
