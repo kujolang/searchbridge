@@ -57,7 +57,7 @@ jobs:
           (cd "$(dirname "$second")" && sha256sum -c "$(basename "$second").sha256")
           (cd dist && find . -type f ! -name RC-SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > RC-SHA256SUMS)
           (cd dist && sha256sum -c RC-SHA256SUMS)
-      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: |
             searchbridge/dist/runtime/*.tar.gz
