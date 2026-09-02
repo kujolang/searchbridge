@@ -19,3 +19,9 @@
 | R15 | SearchAtlas/product APIs pull SearchBridge into mutations/content | M / M | Exclude whole platform; future evidence-only external subset; product owner | Adapter requests project/content/listing/index workflow mutations through read path |
 
 Open risks R6, R12 and R13 must be explicitly dispositioned in every release qualification. They are not reasons to weaken fixtures, cost controls or truthfulness.
+
+## 0.4.0 qualification disposition
+
+- **R6 remains open:** Semrush live/public distribution stays disabled pending an explicit commercial and redistribution review; all checked-in fixtures are synthetic.
+- **R12 remains open externally:** no operator supplied credentials or paid-live authorization, so release evidence is fixture/conformance based and makes no live-row claim.
+- **R13 is closed:** commit `a10a184` corrected the integer/boolean streamed-output guard, and launcher-level regression coverage now asserts non-empty schema-valid stdout. Static output sizes and startup timings are recorded in the 0.4.0 qualification.

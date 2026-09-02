@@ -1,6 +1,6 @@
 # SearchBridge provider expansion package
 
-Status: architecture and research package, 2026-09-02. No provider implementation is included.
+Status: implemented and qualified for SearchBridge 0.4.0 on 2026-09-02. See `docs/release-qualification-0.4.0.md` for the verification record and explicit live-provider blockers.
 
 ## Decision
 
