@@ -1,4 +1,4 @@
-from src.core import dict_get, failure, success, providers
+from src.core import dict_get, failure, success, providers, query_encode
 from src.transport import request_json
 
 export func required_adapter_fields() {
@@ -7,12 +7,72 @@ export func required_adapter_fields() {
 
 export func validate_adapter(adapter) {
 	if type(adapter) != "dict" { return failure("adapter must be a dictionary") }
+	if dict_get(adapter, "contract", "") == "searchbridge-adapter/v2" { return validate_adapter_v2(adapter) }
 	mut errors := []
 	for field in required_adapter_fields() { if has_key(adapter, field) == false { errors = push(errors, "missing " + field) } }
 	if has_key(adapter, "name") && (type(adapter["name"]) != "string" || trim(adapter["name"]) == "") { errors = push(errors, "name must be non-empty") }
 	if has_key(adapter, "capabilities") && len(adapter["capabilities"]) == 0 { errors = push(errors, "capabilities must be non-empty") }
 	for hook in ["discovery", "request", "normalization", "write_boundary"] { if has_key(adapter, hook) && type(adapter[hook]) != "dict" { errors = push(errors, hook + " must be a declarative table") } }
 	return {"ok": len(errors) == 0, "errors": errors}
+}
+
+func allowed(values, value) { for item in values { if item == value { return true } }; return false }
+
+export func canonical_json(value) {
+	if type(value) == "dict" { mut members := []; for key in sort(keys(value)) { members = push(members, to_json(key) + ":" + canonical_json(value[key])) }; return "{" + join(members, ",") + "}" }
+	if type(value) == "list" { mut members := []; for item in value { members = push(members, canonical_json(item)) }; return "[" + join(members, ",") + "]" }
+	return to_json(value)
+}
+
+export func validate_adapter_v2(adapter) {
+	if type(adapter) != "dict" { return failure("adapter must be a dictionary") }
+	mut errors := []
+	for field in ["contract", "id", "adapter_version", "provider_api_version", "minimum_searchbridge_version", "capabilities", "operations", "credentials", "cost_class", "fixtures", "publisher", "signature"] { if has_key(adapter, field) == 0 { errors = push(errors, "missing " + field) } }
+	if dict_get(adapter, "contract", "") != "searchbridge-adapter/v2" { errors = push(errors, "unsupported adapter contract") }
+	if !regex_match(dict_get(adapter, "id", ""), "^[a-z][a-z0-9-]*$") { errors = push(errors, "invalid adapter id") }
+	if !allowed(["free", "quota", "metered", "expensive", "unknown"], dict_get(adapter, "cost_class", "")) { errors = push(errors, "unknown cost class") }
+	for credential in dict_get(adapter, "credentials", []) {
+		if !allowed(["none", "bearer", "header", "basic", "query", "body"], dict_get(credential, "mode", "")) { errors = push(errors, "unknown credential mode") }
+		if !regex_match(dict_get(credential, "name", ""), "^[A-Z][A-Z0-9_]*$") { errors = push(errors, "invalid credential environment name") }
+		if !starts_with(dict_get(dict_get(credential, "bind", {}), "endpoint_template", ""), "https://") { errors = push(errors, "credential binding must use an exact HTTPS endpoint template") }
+	}
+	mut operation_ids := []
+	for operation in dict_get(adapter, "operations", []) {
+		id := dict_get(operation, "id", ""); if allowed(operation_ids, id) { errors = push(errors, "duplicate operation id") }; operation_ids = push(operation_ids, id)
+		if dict_get(operation, "class", "") != "read" { errors = push(errors, "external adapters are read-only") }
+		if !allowed(["json", "csv", "graphql-json"], dict_get(dict_get(operation, "response", {}), "format", "")) { errors = push(errors, "unknown response format") }
+		if !allowed(["none", "offset-limit", "page-size", "cursor", "provider-list-window", "async-task"], dict_get(dict_get(operation, "pagination", {}), "strategy", "")) { errors = push(errors, "unknown pagination strategy") }
+		request := dict_get(operation, "request", {}); endpoint := dict_get(request, "endpoint_template", "")
+		if !starts_with(endpoint, "https://") || contains(endpoint, "@") || contains(endpoint, "#") { errors = push(errors, "operation endpoint must be an exact safe HTTPS template") }
+		if dict_get(request, "redirects", "") != "deny" { errors = push(errors, "external adapter redirects must be denied") }
+	}
+	if len(errors) == 0 { schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest-v2.schema.json"))); if !schema_check["valid"] { errors = push(errors, "adapter manifest does not satisfy v2 schema") } }
+	return {"ok": len(errors) == 0, "errors": errors}
+}
+
+func safe_package_path(relative) { return relative != "" && !starts_with(relative, "/") && contains(relative, "..") == 0 && contains(relative, "\\") == 0 }
+
+export func load_signed_adapter_v2(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) {
+	if manifest_path == "" || signature_path == "" || key_environment == "" { return failure("signed adapters require manifest, signature, and trust key") }
+	key := env(key_environment); if key == "" { return failure("adapter signature key environment variable is unavailable") }
+	try {
+		manifest_text := read_file(manifest_path); adapter := parse_json(manifest_text)
+		if canonical_json(adapter) != trim(manifest_text) { return failure("adapter manifest is not canonical JSON") }
+		if rsa_verify(manifest_text, trim(read_file(signature_path)), key) != true { return failure("adapter package RSA-SHA256 signature verification failed") }
+		checked := validate_adapter_v2(adapter); if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
+		base := dirname(manifest_path)
+		for file in dict_get(adapter, "package_files", []) {
+			relative := dict_get(file, "path", ""); if !safe_package_path(relative) { return failure("unsafe adapter package path") }
+			path := path_join(base, relative); if !path_is_file(path) || path_is_symlink(path) { return failure("adapter package file is missing or unsafe") }
+			if sha256_file(path) != dict_get(file, "sha256", "") { return failure("adapter package file digest mismatch") }
+		}
+		for capability in adapter["capabilities"] { if !includes(capability_allowlist, capability["id"]) { return failure("adapter capability is not allowlisted: " + capability["id"]) } }
+		for operation in adapter["operations"] {
+			endpoint := operation["request"]["endpoint_template"]; if !includes(endpoint_allowlist, endpoint) { return failure("adapter endpoint is not allowlisted") }
+		}
+		for credential in adapter["credentials"] { if !includes(credential_allowlist, credential["name"]) { return failure("adapter credential environment variable is not allowlisted") } }
+		return success(adapter)
+	} except adapter_error { return failure("could not load signed adapter package: " + to_string(adapter_error)) }
 }
 
 export func register_adapter(registry, adapter) {
@@ -34,7 +94,10 @@ export func load_signed_adapter(manifest_path, signature_path, key_environment, 
 	if manifest_path == "" || signature_path == "" || key_environment == "" { return failure("signed adapters require --adapter-manifest, --adapter-signature, and --adapter-key-env") }
 	key := env(key_environment); if key == "" { return failure("adapter signature key environment variable is unavailable") }
 	try {
-		manifest_text := read_file(manifest_path); signature := trim(read_file(signature_path))
+		manifest_text := read_file(manifest_path)
+		preview := parse_json(manifest_text)
+		if dict_get(preview, "contract", "") == "searchbridge-adapter/v2" { return load_signed_adapter_v2(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) }
+		signature := trim(read_file(signature_path))
 		if rsa_verify(manifest_text, signature, key) != true { return failure("adapter manifest RSA-SHA256 signature verification failed") }
 		adapter := parse_json(manifest_text); checked := validate_adapter(adapter); if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
 		schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest.schema.json"))); if !schema_check["valid"] { return failure("adapter manifest does not satisfy its schema") }
@@ -46,10 +109,54 @@ export func load_signed_adapter(manifest_path, signature_path, key_environment, 
 	} except adapter_error { return failure("could not load signed adapter: " + to_string(adapter_error)) }
 }
 
+func json_pointer(value, pointer) {
+	if pointer == "" || pointer == "/" { return value }
+	mut current := value
+	for raw in split(pointer, "/") {
+		if raw == "" { continue }; key := replace(replace(raw, "~1", "/"), "~0", "~")
+		if type(current) == "dict" && has_key(current, key) { current = current[key] }
+		else if type(current) == "array" && regex_match(key, "^[0-9]+$") && to_int(key) < len(current) { current = current[to_int(key)] }
+		else { return null }
+	}
+	return current
+}
+
+func external_v2_operation(adapter, capability) { for operation in adapter["operations"] { if operation["capability"] == capability { return operation } }; return null }
+
+func run_signed_adapter_v2(adapter, options) {
+	capability := options["capability"]; operation := external_v2_operation(adapter, capability)
+	if type(operation) == "null" { return failure("adapter does not implement requested capability") }
+	mut raw_result := null; base := dirname(options["adapter_manifest"])
+	if options["fixture"] {
+		fixture_path := path_join(base, operation["fixture"]); raw_result = success({"body": parse_json(read_file(fixture_path)), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})
+	} else {
+		request := operation["request"]; endpoint := request["endpoint_template"]; mut headers := {}; mut body := dict_get(request, "body", null)
+		credential_name := dict_get(request, "credential", "")
+		if credential_name != "" {
+			mut credential_spec := null; for item in adapter["credentials"] { if item["name"] == credential_name { credential_spec = item } }
+			if type(credential_spec) == "null" { return failure("operation credential is undeclared") }
+			credential := env(credential_name); if credential == "" { return failure("adapter credential environment variable is unavailable") }
+			mode := credential_spec["mode"]
+			if mode == "bearer" { headers["Authorization"] := "Bearer " + credential }
+			else if mode == "header" { headers[credential_spec["field"]] := credential }
+			else if mode == "basic" { headers["Authorization"] := "Basic " + encode_base64(credential) }
+			else if mode == "query" { endpoint = endpoint + "?" + query_encode(credential_spec["field"]) + "=" + query_encode(credential) }
+			else if mode == "body" { if type(body) == "null" { body = {} }; body[credential_spec["field"]] := credential }
+		}
+		raw_result = request_json(endpoint, request["method"], body, headers, options, options["transport"])
+	}
+	if !raw_result["ok"] { return raw_result }
+	rows := json_pointer(raw_result["value"]["body"], operation["response"]["rows_pointer"]); if type(rows) != "array" { rows = [] }
+	if len(rows) > options["max_total_rows"] { rows = slice(rows, 0, options["max_total_rows"]) }
+	mut run_mode := "live"; if options["fixture"] { run_mode = "fixture" }; mut retrieved_at := now_utc(); if options["deterministic"] { retrieved_at = "1970-01-01T00:00:00Z" }
+	return success({"schema": "searchbridge.result/v1", "capability": capability, "provider": adapter["id"], "mode": run_mode, "retrieved_at": retrieved_at, "rows": rows, "contract": {"capability": capability + "/v1", "adapter": "searchbridge-adapter/v2"}, "source": {"provider": adapter["id"], "provider_api_version": adapter["provider_api_version"], "adapter_version": adapter["adapter_version"], "operation": operation["id"]}, "adapter_manifest_hash": sha256(canonical_json(adapter)), "telemetry": raw_result["value"]["telemetry"]})
+}
+
 export func run_signed_adapter(options) {
 	capabilities := split(options["adapter_allow_capabilities"], ","); endpoints := split(options["adapter_allow_endpoints"], ","); credentials := split(options["adapter_allow_credentials"], ",")
 	loaded := load_signed_adapter(options["adapter_manifest"], options["adapter_signature"], options["adapter_key_env"], capabilities, endpoints, credentials)
 	if !loaded["ok"] { return loaded }; adapter := loaded["value"]; capability := options["capability"]
+	if dict_get(adapter, "contract", "") == "searchbridge-adapter/v2" { return run_signed_adapter_v2(adapter, options) }
 	if !includes(adapter["capabilities"], capability) { return failure("adapter does not implement requested capability") }
 	request := adapter["request"]; method := dict_get(request, "method", "GET"); endpoint := request["endpoint"]; mut headers := {}
 	credential_environment := dict_get(request, "credential_env", "")

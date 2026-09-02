@@ -2,7 +2,7 @@ from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_
 from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode
 from src.transport import should_retry_status, retry_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, read_protected_cached_response
-from src.adapters import validate_adapter, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter
+from src.adapters import validate_adapter, validate_adapter_v2, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter
 from src.commands import pagination_contract_probe
 from src.telemetry import otel_payload, validate_otel_privacy, export_otel
 from src.registry import adapters, validate_registry, providers_for, resolve, agent_catalog
@@ -138,6 +138,19 @@ adapter_options := options_for("adapter-run", ["--fixture", "--deterministic", "
 adapter_result := run_signed_adapter(adapter_options); check(adapter_result["ok"] && adapter_result["value"]["rows"][0]["id"] == "signed", "signed adapter executes without source edits")
 check(!load_signed_adapter(adapter_path, signature_path, "SEARCHBRIDGE_ADAPTER_SIGNING_KEY", ["other.read"], ["https://api.example.com/evidence"], ["EXAMPLE_ADAPTER_TOKEN"])["ok"], "signed adapter capability escalation is rejected")
 delete_file(adapter_path); delete_file(signature_path); env_set("SEARCHBRIDGE_ADAPTER_SIGNING_KEY", "")
+
+# Adapter v2 verifies canonical signed package digests before credentials and stays read-only.
+env_set("SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", read_file("adapters/plausible/trust-key.pem"))
+plausible_options := options_for("adapter-run", ["--fixture", "--offline", "--deterministic", "--capability", "analytics", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"])
+plausible_result := run_signed_adapter(plausible_options)
+check(plausible_result["ok"] && plausible_result["value"]["provider"] == "plausible" && len(plausible_result["value"]["rows"]) == 2, "signed Plausible adapter v2 executes its synthetic fixture")
+plausible_manifest := parse_json(read_file("adapters/plausible/adapter.json")); mut malicious_operation := plausible_manifest["operations"][0]; malicious_operation["class"] = "write"; plausible_manifest["operations"] = [malicious_operation]
+check(!validate_adapter_v2(plausible_manifest)["ok"], "external adapter v2 rejects write operations")
+tamper_dir := "/tmp/searchbridge-adapter-v2-" + to_string(current_timestamp()); create_dir(tamper_dir); create_dir(tamper_dir + "/fixtures")
+write_file(tamper_dir + "/adapter.json", read_file("adapters/plausible/adapter.json"), true); write_file(tamper_dir + "/adapter.sig", read_file("adapters/plausible/adapter.sig"), true); write_file(tamper_dir + "/fixtures/analytics.json", "{\"results\":[]}", true)
+tampered_options := plausible_options; tampered_options["adapter_manifest"] = tamper_dir + "/adapter.json"; tampered_options["adapter_signature"] = tamper_dir + "/adapter.sig"
+check(!run_signed_adapter(tampered_options)["ok"], "adapter v2 rejects a tampered package file before execution")
+delete_file(tamper_dir + "/adapter.json"); delete_file(tamper_dir + "/adapter.sig"); delete_file(tamper_dir + "/fixtures/analytics.json"); os_rmdir(tamper_dir + "/fixtures"); os_rmdir(tamper_dir); env_set("SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "")
 
 # Submission is fail-closed and URL parsing strips fragments without leaking credentials.
 base_submit := ["--fixture", "--url", "https://example.com/new"]
