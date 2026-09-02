@@ -22,6 +22,8 @@
 - Added executable adapter runtime ranges, same-major compatibility enforcement, deprecation/removal rules, and migration boundary fixtures.
 - Removed the unimplemented `crawl.data` row contract from the 0.4 public SDK and documentation instead of advertising a capability with no executor.
 - Named the exact non-JCS signing format as `searchbridge-canonical-json/v1` and added multi-key trust rotation plus fingerprint revocation.
+- Added deterministic property testing across URL normalization, endpoint rejection, JSON canonicalization, CSV bounds, signature integrity, cache hashing, and redaction.
+- Added a repository threat model, security reporting policy, CODEOWNERS, Dependabot, pinned CodeQL/dependency/secret gates, and a machine-readable protected-branch policy.
 
 ## 0.3.0 — 2026-08-12
 

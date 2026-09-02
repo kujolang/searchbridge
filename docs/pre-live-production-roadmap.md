@@ -51,11 +51,11 @@ provider behavior, not discover missing core architecture.
   migration fixtures.
 - [x] Decide whether `crawl.data` becomes executable or is removed from the
   advertised public contract before release.
-- [ ] Complete a threat model, repository security scan, and fuzz/property tests
+- [x] Complete a threat model, repository security scan, and fuzz/property tests
   for URL, JSON, CSV, canonicalization, signature, cache, and redaction paths.
 - [x] Verify RFC 8785 canonicalization or name the implemented signing format
   precisely; add trust-key rotation and revocation behavior.
-- [ ] Require dependency, secret, and static-analysis checks in release gates.
+- [x] Require dependency, secret, and static-analysis checks in release gates.
 
 ## 5. Agent, SDK, and distribution readiness
 

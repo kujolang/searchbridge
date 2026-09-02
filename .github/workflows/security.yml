@@ -1,0 +1,69 @@
+name: security
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 7 * * 2'
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, go]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: github/codeql-action/init@6f5948dfacef28e207b48d0905cf90c03365536d
+        with:
+          languages: ${{ matrix.language }}
+      - uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: sdk/go/go.mod
+          cache-dependency-path: sdk/go/go.mod
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: stable
+      - run: npm ci && npm audit --audit-level=high
+        working-directory: sdk/typescript
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0 && govulncheck ./...
+        working-directory: sdk/go
+      - run: cargo install cargo-audit --version 0.22.2 --locked && cargo audit
+        working-directory: sdk/rust
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: always
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+      - uses: trufflesecurity/trufflehog@20652fbbdefffcdaa493a5bf57ab2ac6b1db715b
+        with:
+          path: ./
+          extra_args: --only-verified

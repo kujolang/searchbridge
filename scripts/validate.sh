@@ -21,6 +21,8 @@ bash scripts/cache_permission_gate.sh
 "$KUJO_RUNTIME" run scripts/benchmark.kujo -- --iterations 10 >/dev/null
 "$KUJO_RUNTIME" run scripts/expansion_benchmark.kujo -- --rows 1000 >/dev/null
 "$KUJO_RUNTIME" run scripts/reliability_qualification.kujo >/dev/null
+"$KUJO_RUNTIME" run scripts/security_property_gate.kujo
+"$KUJO_RUNTIME" run scripts/governance_gate.kujo
 version_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version)"
 fixture_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic)"
 if [[ -z "$version_output" || -z "$fixture_output" ]]; then

@@ -1,0 +1,17 @@
+from src.core import clean_error, normalize_submission_url
+from src.adapters import canonical_json
+from src.protocols import bounded_csv_parse, validate_exact_endpoint
+from src.cache import credential_independent_request_hash
+
+mut i := 0; mut csv := "id;value\n"
+while i < 1000 {
+	text := "value-" + to_string(i) + "-é"; value := {"z": [i, true, null], "a": {"text": text, "even": i % 2 == 0}}; encoded := canonical_json(value); if canonical_json(parse_json(encoded)) != encoded { eprint("canonical JSON idempotence property failed"); exit(1) }
+	secret_a := "secret-a-" + to_string(i); secret_b := "secret-b-" + to_string(i); hash_a := credential_independent_request_hash("POST", "https://example.com/data?api_key=" + secret_a + "&q=" + to_string(i), {"access_token": secret_a, "query": i}); hash_b := credential_independent_request_hash("POST", "https://example.com/data?api_key=" + secret_b + "&q=" + to_string(i), {"access_token": secret_b, "query": i}); if hash_a != hash_b { eprint("credential-independent hash property failed"); exit(1) }
+	cleaned := clean_error("token=" + secret_a + " Authorization: Bearer " + secret_a); if contains(cleaned, secret_a) { eprint("redaction property failed"); exit(1) }
+	normalized := normalize_submission_url("https://example.com/path/" + to_string(i) + "?q=x#fragment"); if !normalized["ok"] || contains(normalized["value"], "#") { eprint("URL normalization property failed"); exit(1) }
+	csv = csv + to_string(i) + ";=FORMULA(" + to_string(i) + ")\n"; i = i + 1
+}
+parsed := bounded_csv_parse(csv, 1000, 4, 256); if !parsed["ok"] || len(parsed["value"]) != 1000 || parsed["value"][0]["value"] != "=FORMULA(0)" { eprint("bounded CSV property failed"); exit(1) }
+for unsafe in ["http://example.com/data", "https://127.0.0.1/data", "https://[::1]/data", "https://user@example.com/data", "https://example.com.evil/data", "https://tést.example/data"] { if validate_exact_endpoint(unsafe, "https://example.com/data", false)["ok"] { eprint("unsafe URL property accepted"); exit(1) } }
+keypair := rsa_generate_keypair(2048); signed := canonical_json({"a": 1, "b": "evidence"}); signature := rsa_sign(signed, keypair["private"]); if !rsa_verify(signed, signature, keypair["public"]) || rsa_verify(signed + " ", signature, keypair["public"]) { eprint("signature integrity property failed"); exit(1) }
+print("1,000 deterministic URL/JSON/CSV/cache/redaction properties and signature tamper checks passed.")
