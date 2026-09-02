@@ -55,7 +55,8 @@ jobs:
           second_hash="$(sha256sum "$second" | cut -d ' ' -f 1)"
           test "$first_hash" = "$second_hash"
           (cd "$(dirname "$second")" && sha256sum -c "$(basename "$second").sha256")
-          find dist -type f ! -name RC-SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > dist/RC-SHA256SUMS
+          (cd dist && find . -type f ! -name RC-SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > RC-SHA256SUMS)
+          (cd dist && sha256sum -c RC-SHA256SUMS)
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: |

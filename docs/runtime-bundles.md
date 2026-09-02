@@ -12,6 +12,10 @@ manifest binding both source and runtime, and creates an adjacent SHA-256 file.
 The checksum names only the archive basename, so it remains verifiable after
 download or relocation to any directory.
 
+The retained release-candidate artifact also contains `RC-SHA256SUMS`, rooted
+at the artifact extraction directory, for one-command verification of every
+bundle, SDK package, benchmark, SBOM, and provenance document.
+
 The platform workflow builds each runtime from the pinned Kujo commit, creates
 the bundle twice, requires byte-identical hashes, extracts it into a clean
 temporary directory, and executes an offline fixture with an empty environment.

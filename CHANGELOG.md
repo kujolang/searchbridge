@@ -37,6 +37,7 @@
 - Isolated loopback fault qualification from runner proxy settings and made any redirect-policy failure diagnostic.
 - Advanced every active CI, monitoring, live, bundle, and release pin to the exact Kujo runtime that enforces SearchBridge's network and filesystem policies.
 - Made runtime checksum sidecars portable after download and required CI to verify them from the artifact directory.
+- Rooted the aggregate release-candidate checksum manifest at its downloaded artifact directory and verify it before upload.
 
 ## 0.3.0 — 2026-08-12
 
