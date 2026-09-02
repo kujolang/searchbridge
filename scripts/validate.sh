@@ -25,6 +25,7 @@ bash scripts/sdk_runtime_gate.sh >/dev/null
 "$KUJO_RUNTIME" run scripts/security_property_gate.kujo
 "$KUJO_RUNTIME" run scripts/governance_gate.kujo
 node scripts/mcp_gate.mjs
+bash scripts/examples_gate.sh
 version_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version)"
 fixture_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic)"
 if [[ -z "$version_output" || -z "$fixture_output" ]]; then

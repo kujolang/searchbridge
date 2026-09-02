@@ -1,0 +1,7 @@
+from src.cli import prepare_options, dispatch
+
+env_set("SEARCHBRIDGE_EXAMPLE_ADAPTER_KEY", read_file("adapters/plausible/trust-key.pem"))
+tokens := ["--provider", "plausible", "--capability", "analytics", "--fixture", "--offline", "--deterministic", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_EXAMPLE_ADAPTER_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"]
+prepared := prepare_options("fetch", tokens); if !prepared["ok"] { eprint(prepared["error"]); exit(2) }
+result := dispatch("fetch", prepared["value"]); if !result["ok"] || result["value"]["provider"] != "plausible" || len(result["value"]["rows"]) != 2 { eprint("signed external adapter starter failed"); exit(1) }
+print("Signed external adapter fixture passed explicit trust, authority, routing, and normalization checks.")

@@ -1,0 +1,12 @@
+from src.transport import request_json, dataforseo_task_contract_transport
+
+if len(args()) != 1 { eprint("usage: encrypted_replay_ci.kujo CACHE_DIR"); exit(2) }
+cache_dir := args()[0]; env_set("SEARCHBRIDGE_EXAMPLE_REPLAY_KEY", "fixture-only-replay-key")
+policy := {"offline": false, "replay": false, "retries": 0, "cache_dir": cache_dir, "cache_max_age": 3600, "cache_require_encryption": true, "cache_encryption_key_env": "SEARCHBRIDGE_EXAMPLE_REPLAY_KEY", "replay_capabilities": ["analytics"], "current_capability": "analytics", "deterministic": true}
+fresh := request_json("https://example.invalid/fixture", "GET", null, {}, policy, dataforseo_task_contract_transport)
+if !fresh["ok"] { eprint("encrypted replay fixture write failed: " + fresh["error"]); exit(1) }
+if fresh["value"]["telemetry"]["cache_status"] != "miss-written" { eprint("encrypted replay fixture was not cached"); exit(1) }
+mut replay_policy := policy; replay_policy["offline"] = true; replay_policy["replay"] = true
+replayed := request_json("https://example.invalid/fixture", "GET", null, {}, replay_policy, null)
+if !replayed["ok"] || replayed["value"]["telemetry"]["cache_status"] != "hit" || replayed["value"]["body"]["tasks"][0]["id"] != "synthetic-task" { eprint("encrypted offline replay failed"); exit(1) }
+print("CI regression gate wrote authenticated encrypted evidence and replayed it without transport.")

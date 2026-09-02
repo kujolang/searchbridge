@@ -31,6 +31,7 @@
 - Made the redirect-denial qualification portable across Kujo transport backends without depending on backend-specific error text.
 - Added a clean-checkout release-candidate gate retaining benchmarks, SDK packages, runtime bundles, SBOM, checksums, and GitHub build attestations.
 - Made the SDK validation gate bootstrap its locked TypeScript toolchain in a clean checkout.
+- Added executable encrypted-replay CI and signed external-adapter starter examples and closed the completed 0.4 engineering backlog.
 
 ## 0.3.0 — 2026-08-12
 

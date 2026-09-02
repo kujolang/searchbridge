@@ -23,3 +23,13 @@ available:
 
 Canonical rows under `examples/rows/` correspond to the public capability
 schemas documented in `docs/row-contracts.md`.
+# End-to-end examples
+
+- `ci_quality_gate.kujo` embeds SearchBridge as a typed fixture-or-live CI gate.
+- `encrypted_replay_ci.kujo` writes authenticated encrypted evidence and proves
+  the same request can be replayed offline without calling transport.
+- `external_adapter_starter.kujo` executes the signed Plausible fixture through
+  semantic fetch with explicit trust, capability, endpoint, and credential
+  authority.
+
+The full validation suite executes all three without provider credentials.
