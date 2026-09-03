@@ -33,10 +33,10 @@ jobs:
           git archive --format=zip --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.zip" "$GITHUB_REF_NAME"
           cd dist
           sha256sum * > SHA256SUMS
-      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: 'dist/*'
-      - uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           files: dist/*
           generate_release_notes: true

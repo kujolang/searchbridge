@@ -50,8 +50,9 @@ The main trust boundaries are:
    directory, use parameterized SQL, cap rows/line size/disk, and remove their
    database (`src/evidence.kujo:5-15`).
 6. **Source to release.** CI checks source, dependencies, secrets, generated SDK
-   compatibility, and release artifacts. CODEOWNERS and protected-branch policy
-   require review of sensitive paths.
+   compatibility, and release artifacts. CODEOWNERS identifies ownership of
+   sensitive paths, while protected-branch policy requires pull requests and
+   automated qualification checks.
 
 ## 3. Abuse cases and mitigations
 

@@ -29,7 +29,7 @@ jobs:
         env:
           SEARCHBRIDGE_VERIFY_TAG: ${{ inputs.tag }}
         run: '"$KUJO_BIN" run verify_release.kujo | tee independent-release-evidence.json'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: independent-release-verification-${{ inputs.tag }}
           path: independent-release-evidence.json
