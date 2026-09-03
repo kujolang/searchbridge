@@ -275,4 +275,4 @@ See [security boundaries](docs/security.md), the [output contract](docs/output-c
 [SDK usage](docs/sdk.md), [runtime bundles](docs/runtime-bundles.md), [operations runbook](docs/operations.md),
 [provider research](docs/provider-research.md), the [0.2.4 qualification](docs/release-qualification-0.2.4.md),
 the [reproducible release checklist](docs/release-checklist-0.2.x.md), and the
-[next-session backlog](docs/next-session-review-0.3.md).
+[v1.0 readiness checklist](docs/v1.0-readiness-checklist.md).

@@ -43,6 +43,7 @@
 - Completed the offline production-readiness roadmap and recorded independently verified cross-platform and release-candidate evidence.
 - Updated TypeScript and pinned CI/release actions to their current supported major versions.
 - Aligned protected-branch review requirements with the repository's single-maintainer ownership while preserving mandatory pull requests and qualification checks.
+- Added an agent-ready v1.0 readiness checklist covering live provider proof, unattended authentication, compatibility migration, distribution, security review, and release verification.
 
 ## 0.3.0 — 2026-08-12
 
