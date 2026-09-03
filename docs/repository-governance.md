@@ -1,8 +1,9 @@
 # Repository governance
 
 The `main` branch is release-bearing. Changes arrive through pull requests,
-require an approving review from CODEOWNERS, dismiss stale approvals, resolve
-review conversations, and pass the following checks before merge:
+resolve review conversations, and pass the following checks before merge. A
+human approval is not required while the repository has one maintainer; the
+automated qualification gates remain mandatory:
 
 - `kujo-native` (`validate` workflow)
 - `generated-contracts` (`sdk-compatibility` workflow)
