@@ -1,7 +1,7 @@
 required := ["SECURITY.md", ".github/CODEOWNERS", ".github/dependabot.yml", ".github/workflows/security.yml", ".github/workflows/release-candidate.yml", ".github/rulesets/main.json", ".github/rulesets/tags.json", "docs/threat-model.md", "docs/repository-governance.md"]
 for path in required { if !path_is_file(path) { eprint("missing governance artifact: " + path); exit(1) } }
 workflow := read_file(".github/workflows/security.yml")
-for check in ["github/codeql-action/init@6f5948dfacef28e207b48d0905cf90c03365536d", "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294", "trufflesecurity/trufflehog@20652fbbdefffcdaa493a5bf57ab2ac6b1db715b"] { if contains(workflow, check) == 0 { eprint("security workflow action is not pinned as expected"); exit(1) } }
+for check in ["github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938", "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294", "trufflesecurity/trufflehog@20652fbbdefffcdaa493a5bf57ab2ac6b1db715b"] { if contains(workflow, check) == 0 { eprint("security workflow action is not pinned as expected"); exit(1) } }
 ruleset := parse_json(read_file(".github/rulesets/main.json")); if ruleset["enforcement"] != "active" || len(ruleset["rules"]) < 4 { eprint("main branch ruleset is incomplete"); exit(1) }
 tag_ruleset := parse_json(read_file(".github/rulesets/tags.json")); if tag_ruleset["enforcement"] != "active" || tag_ruleset["target"] != "tag" { eprint("release tag ruleset is incomplete"); exit(1) }
 policy := read_file("SECURITY.md"); if contains(policy, "security/advisories/new") == 0 || contains(policy, "local CLI and SDK") == 0 { eprint("security policy is incomplete"); exit(1) }

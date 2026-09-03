@@ -41,6 +41,7 @@
 - Added a portable SHA-256 helper so bundle and SDK packaging work with GNU `sha256sum` on Windows/Linux and `shasum` on macOS.
 - Normalized CRLF version files and validate semantic versions before constructing cross-platform bundle or SDK paths.
 - Completed the offline production-readiness roadmap and recorded independently verified cross-platform and release-candidate evidence.
+- Updated TypeScript and pinned CI/release actions to their current supported major versions.
 
 ## 0.3.0 — 2026-08-12
 
