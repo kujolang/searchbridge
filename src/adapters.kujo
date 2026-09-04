@@ -36,7 +36,7 @@ export func canonical_json(value) {
 export func validate_adapter_v2(adapter) {
 	if type(adapter) != "dict" { return failure("adapter must be a dictionary") }
 	mut errors := []
-	for field in ["contract", "id", "adapter_version", "provider_api_version", "minimum_searchbridge_version", "capabilities", "operations", "credentials", "cost_class", "fixtures", "publisher", "signature"] { if has_key(adapter, field) == 0 { errors = push(errors, "missing " + field) } }
+	for field in ["contract", "id", "adapter_version", "provider_api_version", "minimum_searchbridge_version", "capabilities", "operations", "credentials", "cost_class", "fixtures", "package_files", "publisher", "signature"] { if has_key(adapter, field) == 0 { errors = push(errors, "missing " + field) } }
 	if dict_get(adapter, "contract", "") != "searchbridge-adapter/v2" { errors = push(errors, "unsupported adapter contract") }
 	if !regex_match(dict_get(adapter, "id", ""), "^[a-z][a-z0-9-]*$") { errors = push(errors, "invalid adapter id") }
 	minimum_version := dict_get(adapter, "minimum_searchbridge_version", ""); maximum_version := dict_get(adapter, "maximum_searchbridge_version", ""); if !regex_match(dict_get(adapter, "adapter_version", ""), "^[0-9]+\\.[0-9]+\\.[0-9]+$") || !adapter_version_compatible(minimum_version, maximum_version) { errors = push(errors, "adapter version range is incompatible with this runtime") }
@@ -48,9 +48,12 @@ export func validate_adapter_v2(adapter) {
 		if allowed(["header", "query", "body"], dict_get(credential, "mode", "")) && !regex_match(dict_get(credential, "field", ""), "^[A-Za-z][A-Za-z0-9_-]{0,63}$") { errors = push(errors, "credential field name is invalid") }
 		for endpoint in dict_get(dict_get(credential, "bind", {}), "endpoint_templates", []) { if !starts_with(endpoint, "https://") || contains(endpoint, "@") || contains(endpoint, "#") { errors = push(errors, "credential result binding is invalid") } }
 	}
+	mut package_paths := []
+	for file in dict_get(adapter, "package_files", []) { relative := dict_get(file, "path", ""); if !safe_package_path(relative) { errors = push(errors, "unsafe adapter package path") }; if includes(package_paths, relative) { errors = push(errors, "duplicate adapter package path") }; package_paths = push(package_paths, relative); if !regex_match(dict_get(file, "sha256", ""), "^[0-9a-f]{64}$") { errors = push(errors, "adapter package digest is invalid") } }
 	mut operation_ids := []
 	for operation in dict_get(adapter, "operations", []) {
 		id := dict_get(operation, "id", ""); if allowed(operation_ids, id) { errors = push(errors, "duplicate operation id") }; operation_ids = push(operation_ids, id)
+		fixture_path := dict_get(operation, "fixture", ""); if !safe_package_path(fixture_path) || !includes(package_paths, fixture_path) { errors = push(errors, "operation fixture must be a declared safe package file") }
 		if dict_get(operation, "class", "") != "read" { errors = push(errors, "external adapters are read-only") }
 		if !allowed(["json", "csv", "graphql-json"], dict_get(dict_get(operation, "response", {}), "format", "")) { errors = push(errors, "unknown response format") }
 		if !allowed(["none", "offset-limit", "page-size", "cursor", "provider-list-window", "async-task"], dict_get(dict_get(operation, "pagination", {}), "strategy", "")) { errors = push(errors, "unknown pagination strategy") }
@@ -229,7 +232,7 @@ func run_signed_adapter_v2(adapter, options) {
 	reliability := dict_get(operation, "reliability", {}); max_retries := dict_get(reliability, "max_retries", options["retries"]); if options["retries"] > max_retries { options["retries"] = max_retries }; options["retry_statuses"] = dict_get(reliability, "retry_statuses", [429, 500, 502, 503, 504]); options["retry_delay_cap_ms"] = dict_get(reliability, "retry_delay_cap_ms", 5000); options["circuit_failure_threshold"] = dict_get(reliability, "circuit_failure_threshold", 3)
 	mut raw_result := null; base := dirname(options["adapter_manifest"]); request := operation["request"]; response := operation["response"]; pagination := operation["pagination"]
 	if options["fixture"] {
-		fixture_path := path_join(base, operation["fixture"]); raw_result = success({"body": parse_json(read_file(fixture_path)), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})
+		relative := operation["fixture"]; mut expected_digest := ""; for file in adapter["package_files"] { if file["path"] == relative { expected_digest = file["sha256"] } }; if !safe_package_path(relative) || expected_digest == "" { return failure("adapter fixture is not a declared safe package file") }; fixture_path := path_join(base, relative); if !path_is_file(fixture_path) || path_is_symlink(fixture_path) || sha256_file(fixture_path) != expected_digest { return failure("adapter fixture failed package integrity verification") }; raw_result = success({"body": parse_json(read_file(fixture_path)), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})
 	} else {
 		endpoint := request["endpoint_template"]; mut headers := {}; allowed_fields := dict_get(request, "allowed_query_fields", []); template := dict_get(request, "body_template", dict_get(request, "body", null)); built_body := materialize_template(template, options); if !built_body["ok"] { return built_body }; mut body := built_body["value"]; body_fields := validate_body_fields(body, allowed_fields); if !body_fields["ok"] { return body_fields }; built_endpoint := append_query_template(endpoint, dict_get(request, "query_template", {}), allowed_fields, options); if !built_endpoint["ok"] { return built_endpoint }; endpoint = built_endpoint["value"]; mut auth_mode := "none"
 		credential_name := dict_get(request, "credential", "")

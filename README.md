@@ -91,8 +91,8 @@ jittered retry honors numeric `Retry-After` values.
 
 ```bash
 ./searchbridge analytics --property 123 --page-size 1000 \
-  --max-pages 5 --max-total-rows 5000 --format jsonl --out analytics.jsonl
-./searchbridge pagespeed --url https://example.com --cache-dir .cache/searchbridge
+  --max-pages 5 --max-total-rows 5000 --max-calls 5 --format jsonl --out analytics.jsonl
+./searchbridge pagespeed --url https://example.com --cache-dir .cache/searchbridge --max-calls 1
 ./searchbridge pagespeed --url https://example.com --cache-dir .cache/searchbridge \
   --replay --offline
 ./searchbridge doctor --health-policy fail \
@@ -141,7 +141,7 @@ enter replay storage.
 export SEARCHBRIDGE_REPLAY_KEY='use-a-secret-manager-value'
 ./searchbridge analytics --cache-dir .cache/searchbridge \
   --cache-encryption-key-env SEARCHBRIDGE_REPLAY_KEY \
-  --cache-require-encryption --replay-capabilities analytics
+  --cache-require-encryption --replay-capabilities analytics --max-calls 1
 ```
 
 `adapter-run` loads third-party read adapters without source edits. Manifests

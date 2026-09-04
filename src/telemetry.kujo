@@ -1,4 +1,5 @@
 from src.core import dict_get, failure, success, clean_error
+from src.protocols import validate_exact_endpoint
 
 export func otel_payload(command, value, service_name, deterministic) {
 	mut attributes := [{"key": "searchbridge.command", "value": {"stringValue": command}}, {"key": "searchbridge.schema", "value": {"stringValue": dict_get(value, "schema", "unknown")}}]
@@ -26,8 +27,9 @@ export func export_otel(command, value, options, transport) {
 	if !starts_with(endpoint, "https://") && !starts_with(endpoint, "file:") { return failure("--otel-endpoint must be HTTPS or file:PATH") }
 	payload := otel_payload(command, value, options["otel_service_name"], options["deterministic"]); private := validate_otel_privacy(payload); if !private["ok"] { return private }
 	if starts_with(endpoint, "file:") { append_file(substring(endpoint, 5, len(endpoint)), to_json(payload) + "\n"); return success(true) }
+	checked_endpoint := validate_exact_endpoint(endpoint, endpoint, false); if !checked_endpoint["ok"] { return failure("unsafe OpenTelemetry collector endpoint") }
 	mut call_transport := transport; if type(call_transport) == "null" { call_transport = func(url, request_options) { return http_request(url, request_options) } }
-	response := call_transport(endpoint, {"method": "POST", "headers": {"Content-Type": "application/json"}, "body": to_json(payload), "timeout": options["timeout"]})
+	response := call_transport(endpoint, {"method": "POST", "headers": {"Content-Type": "application/json"}, "body": to_json(payload), "timeout": options["timeout"], "redirects": "none", "destination_policy": "deny_private", "pin_dns": true, "max_response_bytes": 1048576})
 	match response {
 		case Ok(value): { status := dict_get(value, "_status", dict_get(value, "status", 0)); if status >= 200 && status < 300 { return success(true) }; return failure("OpenTelemetry collector returned HTTP " + to_string(status)) }
 		case Err(error): { return failure("OpenTelemetry export failed: " + clean_error(error)) }

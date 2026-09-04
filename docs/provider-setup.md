@@ -53,7 +53,7 @@ Host an IndexNow key file on an operator-owned host. A real submission is a writ
 export SEARCHBRIDGE_INDEXNOW_KEY='<same-host-key>'
 ./searchbridge submit --provider indexnow --url 'https://owned.example/path' \
   --key-location 'https://owned.example/key-file.txt' \
-  --capability index.submission --allow-unverified-live --act --yes
+  --capability index.submission --allow-unverified-live --max-calls 1 --act --yes
 ```
 
 The receipt proves only received/accepted status; it never claims indexing.

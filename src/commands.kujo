@@ -113,10 +113,11 @@ export func command_search_performance(options) {
 			if !valid_iso_date(options["start_date"]) || !valid_iso_date(options["end_date"]) || options["start_date"] > options["end_date"] { return failure("GSC dates must use valid YYYY-MM-DD values and start-date must not exceed end-date") }
 			auth := bearer("SEARCHBRIDGE_GSC_TOKEN"); if !auth["ok"] { return auth }
 			endpoint := "https://www.googleapis.com/webmasters/v3/sites/" + query_encode(options["property"]) + "/searchAnalytics/query"
-			mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
-			while page < options["max_pages"] && emitted_rows < options["max_total_rows"] {
+			mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}; started := current_timestamp()
+			while page < options["max_pages"] && emitted_rows < options["max_total_rows"] && total_telemetry["attempts"] < options["max_calls"] && current_timestamp() - started <= options["max_elapsed_ms"] {
 				remaining := options["max_total_rows"] - emitted_rows; page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
-				last_result = request_json(endpoint, "POST", {"startDate": options["start_date"], "endDate": options["end_date"], "dimensions": dimensions, "rowLimit": page_limit, "startRow": page * options["page_size"]}, auth["value"], options, options["transport"])
+				mut request_options := options; request_options["max_calls"] = options["max_calls"] - total_telemetry["attempts"]
+				last_result = request_json(endpoint, "POST", {"startDate": options["start_date"], "endDate": options["end_date"], "dimensions": dimensions, "rowLimit": page_limit, "startRow": page * options["page_size"]}, auth["value"], request_options, options["transport"])
 				if !last_result["ok"] { if stream["enabled"] && file_exists(stream["path"]) { delete_file(stream["path"]) }; return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_rows := dict_get(provider_body(last_result), "rows", []); emitted_rows = emitted_rows + len(page_rows)
 				if stream["enabled"] { normalized_page := normalize_gsc(provider_body(last_result), dimensions, property_name, mode(options), page_limit, options["deterministic"]); streamed := stream_page(stream, normalized_page, options); if !streamed["ok"] { return streamed }; stream = streamed["value"] }
 				else { for item in page_rows { all_rows = push(all_rows, item) } }; page = page + 1
@@ -165,11 +166,12 @@ export func command_analytics(options) {
 		mut metric_body := []; for name in metrics { metric_body = push(metric_body, {"name": name}) }
 		mut start_date := options["start_date"]; if start_date == "" { start_date = "28daysAgo" }
 		mut end_date := options["end_date"]; if end_date == "" { end_date = "yesterday" }
-		mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
-		while page < options["max_pages"] && emitted_rows < options["max_total_rows"] {
+		mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}; started := current_timestamp()
+		while page < options["max_pages"] && emitted_rows < options["max_total_rows"] && total_telemetry["attempts"] < options["max_calls"] && current_timestamp() - started <= options["max_elapsed_ms"] {
 			remaining := options["max_total_rows"] - emitted_rows; page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
 			body := {"dateRanges": [{"startDate": start_date, "endDate": end_date}], "dimensions": dim_body, "metrics": metric_body, "limit": to_string(page_limit), "offset": to_string(page * options["page_size"]), "returnPropertyQuota": true}
-			last_result = request_json("https://analyticsdata.googleapis.com/v1beta/" + property_name + ":runReport", "POST", body, auth["value"], options, options["transport"])
+			mut request_options := options; request_options["max_calls"] = options["max_calls"] - total_telemetry["attempts"]
+			last_result = request_json("https://analyticsdata.googleapis.com/v1beta/" + property_name + ":runReport", "POST", body, auth["value"], request_options, options["transport"])
 			if !last_result["ok"] { if stream["enabled"] && file_exists(stream["path"]) { delete_file(stream["path"]) }; return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_body := provider_body(last_result); page_rows := dict_get(page_body, "rows", []); emitted_rows = emitted_rows + len(page_rows)
 			if stream["enabled"] { normalized_page := normalize_analytics(page_body, dimensions, metrics, property_name, mode(options), page_limit, options["deterministic"]); streamed := stream_page(stream, normalized_page, options); if !streamed["ok"] { return streamed }; stream = streamed["value"] }
 			else { for item in page_rows { all_rows = push(all_rows, item) } }; page = page + 1
@@ -308,16 +310,22 @@ export func command_submit(options) {
 	}
 	mut status := 202
 	if !options["fixture"] {
+		if options["max_calls"] < 1 { return failure("live submission requires a positive --max-calls budget") }
 		if options["provider"] == "indexnow" {
 			key := env("SEARCHBRIDGE_INDEXNOW_KEY"); if key == "" { return failure("set SEARCHBRIDGE_INDEXNOW_KEY or use --fixture") }
 			mut body := {"host": data["host"], "key": key, "urlList": data["urls"]}
 			if normalized_key_location != "" { body["keyLocation"] := normalized_key_location }
 			response := request_json("https://api.indexnow.org/indexnow", "POST", body, {}, options, options["transport"]); if !response["ok"] { return response }; status = response["value"]["status"]
 		} else {
+			if len(data["urls"]) > options["max_calls"] { return failure("Bing submission URL count exceeds --max-calls budget") }
 			request := bing_request("SubmitUrl", ""); if !request["ok"] { return request }
+			started := current_timestamp(); mut calls := 0
 			for url in data["urls"] {
-				response := request_json(request["value"]["url"], "POST", {"siteUrl": bing_site_url, "url": url}, request["value"]["headers"], options, options["transport"])
+				if calls >= options["max_calls"] || current_timestamp() - started > options["max_elapsed_ms"] { return failure("Bing submission execution budget exhausted") }
+				mut request_options := options; request_options["max_calls"] = 1
+				response := request_json(request["value"]["url"], "POST", {"siteUrl": bing_site_url, "url": url}, request["value"]["headers"], request_options, options["transport"])
 				if !response["ok"] { return response }; status = response["value"]["status"]
+				calls = calls + dict_get(response["value"]["telemetry"], "attempts", 1)
 			}
 		}
 	}
