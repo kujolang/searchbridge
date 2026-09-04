@@ -177,6 +177,14 @@ jobs:
           set -euo pipefail
           cd dist
           version="${RELEASE_REF#v}"
+          if [[ -d sdk ]]; then
+            mv "sdk/kujolang-searchbridge-$version.tgz" .
+            mv "sdk/searchbridge-$version.crate" .
+            mv "sdk/searchbridge-go-$version.tar.gz" .
+            mv sdk/provenance.json "searchbridge-sdk-$version.provenance.json"
+            mv sdk/SHA256SUMS "searchbridge-sdk-$version-SHA256SUMS"
+            rmdir sdk
+          fi
           for required in \
             "searchbridge-$version-linux-x64.tar.gz" \
             "searchbridge-$version-macos-arm64.tar.gz" \
@@ -186,9 +194,11 @@ jobs:
             "searchbridge-$version.zip" \
             "searchbridge-$version.spdx.json" \
             "searchbridge-$version.provenance.json" \
-            "sdk/kujolang-searchbridge-$version.tgz" \
-            "sdk/searchbridge-$version.crate" \
-            "sdk/searchbridge-go-$version.tar.gz"; do
+            "kujolang-searchbridge-$version.tgz" \
+            "searchbridge-$version.crate" \
+            "searchbridge-go-$version.tar.gz" \
+            "searchbridge-sdk-$version.provenance.json" \
+            "searchbridge-sdk-$version-SHA256SUMS"; do
             test -s "$required"
           done
           find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
@@ -200,5 +210,6 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_REF }}
           files: dist/*
+          fail_on_unmatched_files: true
           generate_release_notes: true
           draft: false

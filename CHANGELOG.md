@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Hardened immutable-tag release recovery, native Windows runtime builds, aggregate checksum paths, guarded artifact reuse, and flattened public SDK publication after the 1.0.0 release workflow exposed those fail-closed packaging defects.
+
 ## 1.0.0 — 2026-09-04
 
 - Froze the v1 provider support tiers and restricted automatic live routing to stable-live integrations.
