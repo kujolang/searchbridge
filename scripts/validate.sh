@@ -56,7 +56,7 @@ else
 	status=$?
 	if [[ "$status" -ne 2 ]]; then printf 'SearchBridge validation failed: unknown command exit was %s.\n' "$status" >&2; exit 1; fi
 fi
-if rg -n 'python3|\.py\b' src tests examples scripts/*.kujo searchbridge.kujo kujo.toml; then
+if grep -REn 'python3|\.py([^[:alnum:]_]|$)' src tests examples scripts/*.kujo searchbridge.kujo kujo.toml; then
 	printf 'SearchBridge validation failed: Python dependency reference remains.\n' >&2
 	exit 1
 fi

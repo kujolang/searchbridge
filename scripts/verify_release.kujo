@@ -5,7 +5,7 @@ func run(argv, options) {
 	return result.stdout
 }
 
-tag := env_or("SEARCHBRIDGE_VERIFY_TAG", "v0.2.4")
+tag := env_or("SEARCHBRIDGE_VERIFY_TAG", "v1.0.0")
 repository := env_or("SEARCHBRIDGE_VERIFY_REPOSITORY", "kujolang/searchbridge")
 expected_tag := "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 if !regex_match(tag, expected_tag) { fail("tag must be an exact semantic version") }

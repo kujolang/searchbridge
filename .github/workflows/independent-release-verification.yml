@@ -5,7 +5,7 @@ on:
       tag:
         description: Immutable SearchBridge release tag
         required: true
-        default: v0.2.4
+        default: v1.0.0
 permissions:
   contents: read
   actions: read

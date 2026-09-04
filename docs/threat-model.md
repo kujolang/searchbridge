@@ -1,6 +1,6 @@
 # SearchBridge threat model
 
-Reviewed for the v1.0 release candidate on 2026-09-04.
+Reviewed for the v1.0.0 release on 2026-09-04.
 
 ## 1. Scope and security objectives
 

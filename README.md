@@ -1,6 +1,6 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-1.0.0--rc-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.0.0-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
@@ -19,9 +19,9 @@ small operating-system integration boundaries.
 ## Quick start
 
 The supported installation is a checksum-verified self-contained GitHub release
-bundle; npm, crates.io, and package-manager availability is not claimed. After
-the owner authorizes and publishes v1.0.0, select the bundle for the operating
-system and CPU in the [support matrix](docs/support-matrix.md):
+bundle; npm, crates.io, and package-manager availability is not claimed. Select
+the v1.0.0 bundle for the operating system and CPU in the
+[support matrix](docs/support-matrix.md):
 
 ```bash
 VERSION=1.0.0
@@ -281,4 +281,6 @@ See [security boundaries](docs/security.md), the [output contract](docs/output-c
 [SDK usage](docs/sdk.md), [runtime bundles](docs/runtime-bundles.md), [operations runbook](docs/operations.md),
 [provider research](docs/provider-research.md), the [v1 support matrix](docs/support-matrix.md),
 [provider setup](docs/provider-setup.md), [v1 security assessment](docs/security-assessment-1.0.0.md),
-and [v1 release-candidate qualification](docs/release-qualification-1.0.0.md).
+and [v1 release qualification](docs/release-qualification-1.0.0.md). The three
+owner-approved post-release checks are isolated in the
+[v1.1 review checklist](docs/v1.1-review-checklist.md).
