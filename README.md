@@ -274,5 +274,6 @@ See [security boundaries](docs/security.md), the [output contract](docs/output-c
 [adapter authoring](docs/adapter-authoring.md), [agent and MCP integration](docs/agent-mcp.md),
 [SDK usage](docs/sdk.md), [runtime bundles](docs/runtime-bundles.md), [operations runbook](docs/operations.md),
 [provider research](docs/provider-research.md), the [0.2.4 qualification](docs/release-qualification-0.2.4.md),
-the [reproducible release checklist](docs/release-checklist-0.2.x.md), and the
-[v1.0 readiness checklist](docs/v1.0-readiness-checklist.md).
+the [reproducible release checklist](docs/release-checklist-0.2.x.md), the
+[v1.0 readiness checklist](docs/v1.0-readiness-checklist.md), and its
+[no-extra-cost execution plan](docs/v1.0-no-cost-execution-plan.md).
