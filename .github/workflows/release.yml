@@ -2,10 +2,17 @@ name: release
 on:
   push:
     tags: ['v1.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable v1 tag to rebuild and publish
+        required: true
+        type: string
 permissions:
   contents: read
 env:
   KUJO_COMMIT: 67e880a9688dd5770d4a67311d45aa551e6a6fd6
+  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 jobs:
   runtime-bundles:
     strategy:
@@ -26,6 +33,14 @@ jobs:
         with:
           fetch-depth: 0
           path: searchbridge
+          ref: ${{ env.RELEASE_REF }}
+      - name: Validate immutable v1 release tag
+        shell: bash
+        working-directory: searchbridge
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" =~ ^v1\.[0-9]+\.[0-9]+$ ]]
+          git show-ref --verify --quiet "refs/tags/$RELEASE_REF"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: kujolang/kujo
@@ -40,6 +55,9 @@ jobs:
         run: |
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows-static-md
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build exact tagged Kujo runtime
+        working-directory: searchbridge
+        run: cargo build --release --locked --manifest-path ../kujo/Cargo.toml
       - name: Build exact tagged runtime bundle twice
         shell: bash
         working-directory: searchbridge
@@ -47,8 +65,7 @@ jobs:
           KUJO_BIN: ${{ runner.os == 'Windows' && format('{0}/kujo/target/release/kujo.exe', github.workspace) || format('{0}/kujo/target/release/kujo', github.workspace) }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          cargo build --release --locked --manifest-path ../kujo/Cargo.toml
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$RELEASE_REF")"
           first="$(KUJO_COMMIT="$KUJO_COMMIT" bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
           first_hash="$(bash scripts/sha256.sh "$first" | awk '{print $1}')"
           second="$(KUJO_COMMIT="$KUJO_COMMIT" bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
@@ -67,6 +84,12 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
+      - name: Validate immutable v1 release tag
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" =~ ^v1\.[0-9]+\.[0-9]+$ ]]
+          git show-ref --verify --quiet "refs/tags/$RELEASE_REF"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: kujolang/kujo
@@ -88,14 +111,15 @@ jobs:
           KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "v$(tr -d '\r\n' < VERSION)" = "$GITHUB_REF_NAME"
+          release_sha="$(git rev-list -n 1 "$RELEASE_REF")"
+          test "$(git rev-parse HEAD)" = "$release_sha"
+          test "v$(tr -d '\r\n' < VERSION)" = "$RELEASE_REF"
           cargo build --release --locked --manifest-path .runtime/kujo/Cargo.toml
           bash scripts/validate.sh
           bash scripts/package_sdks.sh
           "$KUJO_BIN" run scripts/release_artifacts.kujo
-          git archive --format=tar.gz --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.tar.gz" "$GITHUB_SHA"
-          git archive --format=zip --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.zip" "$GITHUB_SHA"
+          git archive --format=tar.gz --prefix="searchbridge-${RELEASE_REF#v}/" -o "dist/searchbridge-${RELEASE_REF#v}.tar.gz" "$release_sha"
+          git archive --format=zip --prefix="searchbridge-${RELEASE_REF#v}/" -o "dist/searchbridge-${RELEASE_REF#v}.zip" "$release_sha"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-metadata-sdks
@@ -127,6 +151,7 @@ jobs:
           subject-path: 'dist/*'
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
+          tag_name: ${{ env.RELEASE_REF }}
           files: dist/*
           generate_release_notes: true
           draft: false
