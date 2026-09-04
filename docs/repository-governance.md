@@ -7,8 +7,11 @@ automated qualification gates remain mandatory:
 
 - `kujo-native` (`validate` workflow)
 - `generated-contracts` (`sdk-compatibility` workflow)
-- `launcher-package (ubuntu-latest)`, `launcher-package (macos-latest)`, and
-  `launcher-package (windows-latest)` (`platform-smoke` workflow)
+- `launcher-package (ubuntu-latest, linux-x64)`
+- `launcher-package (macos-15-intel, macos-x64)`
+- `launcher-package (macos-15, macos-arm64)`
+- `launcher-package (windows-latest, windows-x64)`
+  (`platform-smoke` workflow)
 - `codeql (javascript-typescript)`
 - `codeql (go)`
 - `dependencies`

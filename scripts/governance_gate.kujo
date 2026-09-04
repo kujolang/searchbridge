@@ -3,6 +3,8 @@ for path in required { if !path_is_file(path) { eprint("missing governance artif
 workflow := read_file(".github/workflows/security.yml")
 for check in ["github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938", "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294", "trufflesecurity/trufflehog@20652fbbdefffcdaa493a5bf57ab2ac6b1db715b"] { if contains(workflow, check) == 0 { eprint("security workflow action is not pinned as expected"); exit(1) } }
 ruleset := parse_json(read_file(".github/rulesets/main.json")); if ruleset["enforcement"] != "active" || len(ruleset["rules"]) < 4 { eprint("main branch ruleset is incomplete"); exit(1) }
+ruleset_text := read_file(".github/rulesets/main.json")
+for context in ["launcher-package (ubuntu-latest, linux-x64)", "launcher-package (macos-15-intel, macos-x64)", "launcher-package (macos-15, macos-arm64)", "launcher-package (windows-latest, windows-x64)"] { if contains(ruleset_text, context) == 0 { eprint("main branch ruleset is missing platform status: " + context); exit(1) } }
 tag_ruleset := parse_json(read_file(".github/rulesets/tags.json")); if tag_ruleset["enforcement"] != "active" || tag_ruleset["target"] != "tag" { eprint("release tag ruleset is incomplete"); exit(1) }
 policy := read_file("SECURITY.md"); if contains(policy, "security/advisories/new") == 0 || contains(policy, "local CLI and SDK") == 0 { eprint("security policy is incomplete"); exit(1) }
 model := read_file("docs/threat-model.md"); if contains(model, "Repository: 2903d44dd97984fa785dc08365a9605991ff862ba7f227b43bae332f3b2034fd") == 0 || contains(model, "Version: a3fada31a430595a6d0e3e648fc62ccb315b7025") == 0 { eprint("threat model provenance is missing"); exit(1) }

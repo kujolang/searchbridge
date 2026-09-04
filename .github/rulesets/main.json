@@ -10,9 +10,10 @@
     {"type": "required_status_checks", "parameters": {"strict_required_status_checks_policy": true, "do_not_enforce_on_create": false, "required_status_checks": [
       {"context": "kujo-native"},
       {"context": "generated-contracts"},
-      {"context": "launcher-package (ubuntu-latest)"},
-      {"context": "launcher-package (macos-latest)"},
-      {"context": "launcher-package (windows-latest)"},
+      {"context": "launcher-package (ubuntu-latest, linux-x64)"},
+      {"context": "launcher-package (macos-15-intel, macos-x64)"},
+      {"context": "launcher-package (macos-15, macos-arm64)"},
+      {"context": "launcher-package (windows-latest, windows-x64)"},
       {"context": "codeql (javascript-typescript)"},
       {"context": "codeql (go)"},
       {"context": "dependencies"},
