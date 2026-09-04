@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.kujolang.ai/searchbridge/doctor.v1.json",
   "type": "object",
-  "required": ["schema", "ok", "health", "fixture_ready", "runtime", "credentials_required_for_doctor", "live_capabilities", "unavailable_capabilities", "warnings"],
+  "required": ["schema", "ok", "health", "fixture_ready", "runtime", "credentials_required_for_doctor", "live_capabilities", "unavailable_capabilities", "provider_status", "warnings"],
   "properties": {
     "schema": {"const": "searchbridge.doctor/v1"},
     "ok": {"const": true},
@@ -12,6 +12,7 @@
     "credentials_required_for_doctor": {"const": false},
     "live_capabilities": {"type": "array", "items": {"type": "string"}},
     "unavailable_capabilities": {"type": "array", "items": {"type": "string"}},
+    "provider_status": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["provider", "support_tier", "support_reason"], "properties": {"provider": {"type": "string"}, "support_tier": {"enum": ["stable-live", "fixture-only", "external-reference", "disabled"]}, "support_reason": {"type": "string", "minLength": 1}}, "additionalProperties": false}},
     "warnings": {"type": "array", "items": {"type": "string"}}
   },
   "additionalProperties": false

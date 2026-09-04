@@ -28,3 +28,7 @@ type Batch struct {
 }
 
 type MultiResult struct { Schema string `json:"schema"`; Capability string `json:"capability"`; Routing json.RawMessage `json:"routing"`; Budget json.RawMessage `json:"budget"`; Succeeded int `json:"succeeded"`; Failed int `json:"failed"`; Results []json.RawMessage `json:"results"`; Provenance *Provenance `json:"provenance,omitempty"` }
+
+type SupportTier string
+const ( SupportTierStableLive SupportTier = "stable-live"; SupportTierFixtureOnly SupportTier = "fixture-only"; SupportTierExternalReference SupportTier = "external-reference"; SupportTierDisabled SupportTier = "disabled" )
+type ProviderSupport struct { Provider string `json:"provider"`; SupportTier SupportTier `json:"support_tier"`; SupportReason string `json:"support_reason"` }

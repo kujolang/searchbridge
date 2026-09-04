@@ -1,5 +1,9 @@
 # SearchBridge pre-live production roadmap
 
+> Superseded by [v1.0-no-cost-execution-plan.md](v1.0-no-cost-execution-plan.md)
+> and [release-qualification-1.0.0.md](release-qualification-1.0.0.md). Retained
+> as historical evidence for the pre-v1 implementation.
+
 SearchBridge is a local CLI/SDK for agents and CI. It is not a hosted,
 multi-tenant service. Tenant isolation, hosted RBAC, a control plane, service
 HA, and data-residency administration are therefore outside this release

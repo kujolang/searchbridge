@@ -14,6 +14,8 @@ while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.ku
 "$KUJO_RUNTIME" run scripts/compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_contract_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_snapshot_gate.kujo
+"$KUJO_RUNTIME" run scripts/provider_readiness_gate.kujo >/dev/null
+bash scripts/version_consistency_gate.sh
 bash scripts/run_network_fault_gate.sh
 bash scripts/cache_permission_gate.sh
 "$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo
@@ -54,7 +56,7 @@ else
 	status=$?
 	if [[ "$status" -ne 2 ]]; then printf 'SearchBridge validation failed: unknown command exit was %s.\n' "$status" >&2; exit 1; fi
 fi
-if rg -n 'python3|\.py\b' src tests examples scripts/*.kujo searchbridge.kujo kujo.toml; then
+if grep -REn 'python3|\.py([^[:alnum:]_]|$)' src tests examples scripts/*.kujo searchbridge.kujo kujo.toml; then
 	printf 'SearchBridge validation failed: Python dependency reference remains.\n' >&2
 	exit 1
 fi

@@ -1,13 +1,67 @@
 name: release
 on:
   push:
-    tags: ['v0.*.*']
+    tags: ['v1.*.*']
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
+env:
+  KUJO_COMMIT: 67e880a9688dd5770d4a67311d45aa551e6a6fd6
 jobs:
-  source-release:
+  runtime-bundles:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: macos-15-intel
+            platform: macos-x64
+          - os: macos-15
+            platform: macos-arm64
+          - os: windows-latest
+            platform: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          path: searchbridge
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: kujolang/kujo
+          ref: ${{ env.KUJO_COMMIT }}
+          path: kujo
+      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+        with:
+          toolchain: stable
+      - name: Install Windows OpenSSL dependency
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows-static-md
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build exact tagged runtime bundle twice
+        shell: bash
+        working-directory: searchbridge
+        env:
+          KUJO_BIN: ${{ runner.os == 'Windows' && format('{0}/kujo/target/release/kujo.exe', github.workspace) || format('{0}/kujo/target/release/kujo', github.workspace) }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cargo build --release --locked --manifest-path ../kujo/Cargo.toml
+          first="$(KUJO_COMMIT="$KUJO_COMMIT" bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
+          first_hash="$(bash scripts/sha256.sh "$first" | awk '{print $1}')"
+          second="$(KUJO_COMMIT="$KUJO_COMMIT" bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
+          second_hash="$(bash scripts/sha256.sh "$second" | awk '{print $1}')"
+          test "$first_hash" = "$second_hash"
+          (cd "$(dirname "$second")" && bash "$PWD/../../scripts/sha256.sh" --check "$(basename "$second").sha256")
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-runtime-${{ matrix.platform }}
+          path: searchbridge/dist/runtime/*
+          if-no-files-found: error
+
+  metadata-and-sdks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -16,23 +70,58 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           repository: kujolang/kujo
-          ref: 67e880a9688dd5770d4a67311d45aa551e6a6fd6
+          ref: ${{ env.KUJO_COMMIT }}
           path: .runtime/kujo
       - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
           toolchain: stable
-      - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
-      - name: Verify and generate Kujo-native metadata
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: sdk/go/go.mod
+      - name: Verify tag and build SDK, source, SBOM, and provenance artifacts
         env:
           KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
         run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "v$(tr -d '\r\n' < VERSION)" = "$GITHUB_REF_NAME"
+          cargo build --release --locked --manifest-path .runtime/kujo/Cargo.toml
           bash scripts/validate.sh
-          mkdir -p dist
+          bash scripts/package_sdks.sh
           "$KUJO_BIN" run scripts/release_artifacts.kujo
-          git archive --format=tar.gz --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.tar.gz" "$GITHUB_REF_NAME"
-          git archive --format=zip --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.zip" "$GITHUB_REF_NAME"
-          cd dist
-          sha256sum * > SHA256SUMS
+          git archive --format=tar.gz --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.tar.gz" "$GITHUB_SHA"
+          git archive --format=zip --prefix="searchbridge-${GITHUB_REF_NAME#v}/" -o "dist/searchbridge-${GITHUB_REF_NAME#v}.zip" "$GITHUB_SHA"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-metadata-sdks
+          path: dist
+          if-no-files-found: error
+
+  publish:
+    needs: [runtime-bundles, metadata-and-sdks]
+    if: ${{ vars.SEARCHBRIDGE_PUBLIC_RELEASE_APPROVED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: public-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Verify aggregate release set
+        run: |
+          set -euo pipefail
+          find dist -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: 'dist/*'

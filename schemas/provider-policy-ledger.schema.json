@@ -1,0 +1,13 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://schemas.kujolang.ai/searchbridge/provider-policy-ledger.v1.json",
+  "type":"object",
+  "required":["schema","reviewed_at","review_by","providers"],
+  "properties":{
+    "schema":{"const":"searchbridge.provider-policy-ledger/v1"},
+    "reviewed_at":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "review_by":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "providers":{"type":"array","minItems":1,"items":{"type":"object","required":["id","support_tier","cost_boundary","automation","max_cache_age_seconds","fixture_provenance","policy_sources","required_evidence","live_evidence"],"properties":{"id":{"type":"string"},"support_tier":{"enum":["stable-live","fixture-only","external-reference","disabled"]},"cost_boundary":{"type":"string","minLength":1},"automation":{"type":"string","minLength":1},"max_cache_age_seconds":{"type":"integer","minimum":0},"fixture_provenance":{"enum":["synthetic","licensed","derived-approved"]},"policy_sources":{"type":"array","minItems":1,"items":{"type":"string","pattern":"^https://"}},"required_evidence":{"type":"array","items":{"type":"string"}},"live_evidence":{"type":"array","items":{"type":"object"}}},"additionalProperties":false}}
+  },
+  "additionalProperties":false
+}

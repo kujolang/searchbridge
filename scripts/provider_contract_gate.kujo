@@ -1,8 +1,8 @@
-from src.core import providers
+from src.registry import adapters
 
 snapshot := parse_json(read_file("fixtures/provider-contracts.json"))
 if snapshot["schema"] != "searchbridge.provider-contract-snapshot/v1" { eprint("invalid provider snapshot schema"); exit(1) }
-catalog := providers()
+catalog := adapters()
 for name in keys(catalog) {
 	if has_key(snapshot["providers"], name) == false { eprint("provider snapshot missing " + name); exit(1) }
 	contract := snapshot["providers"][name]

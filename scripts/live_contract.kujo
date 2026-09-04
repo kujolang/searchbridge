@@ -1,24 +1,42 @@
 from src.cli import prepare_options, dispatch
-from src.core import clean_error
+from src.core import clean_error, dict_get
+from src.registry import adapters
 
-provider := args()[0]
-mut command := ""; mut tokens := ["--deterministic", "--page-size", "1", "--max-pages", "1", "--max-total-rows", "1"]
-if provider == "google-search-console" { command = "search-performance"; tokens = concat(tokens, ["--property", env("SEARCHBRIDGE_GSC_PROPERTY"), "--start-date", env("SEARCHBRIDGE_TEST_START_DATE"), "--end-date", env("SEARCHBRIDGE_TEST_END_DATE")]) }
-else if provider == "google-analytics-4" { command = "analytics"; tokens = concat(tokens, ["--property", env("SEARCHBRIDGE_GA4_PROPERTY")]) }
-else if provider == "pagespeed-insights" { command = "pagespeed"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL")]) }
-else if provider == "crux" { command = "crux"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL")]) }
-else if provider == "bing-webmaster" { command = "search-performance"; tokens = concat(tokens, ["--provider", "bing-webmaster", "--property", env("SEARCHBRIDGE_BING_PROPERTY")]) }
-else if provider == "ahrefs" {
-	if env("SEARCHBRIDGE_ENABLE_PAID_LIVE") != "true" { print(to_json({"schema": "searchbridge.live-contract-evidence/v1", "provider": provider, "status": "external-blocked", "reason": "paid live probe not explicitly enabled"})); exit(0) }
-	command = "backlinks"; tokens = concat(tokens, ["--provider", "ahrefs", "--target", env("SEARCHBRIDGE_AHREFS_TARGET"), "--allow-paid", "--max-calls", "1", "--max-provider-units", "1"])
+if len(args()) < 3 { eprint("usage: live_contract.kujo PROVIDER OPERATION CASE [VARIANT]"); exit(2) }
+provider := args()[0]; operation := args()[1]; evidence_case := args()[2]; mut variant := ""; if len(args()) > 3 { variant = args()[3] }
+registry := adapters(); if has_key(registry, provider) == 0 { eprint("unsupported live contract provider"); exit(2) }
+adapter := registry[provider]
+mut evidence_id := operation + ":" + evidence_case; if variant != "" { evidence_id = operation + ":" + variant + ":" + evidence_case }
+func emit(status, capability, result_schema, row_count, pagination, telemetry, run_id, reason) {
+	print(to_json({"schema":"searchbridge.live-contract-evidence/v1","evidence_id":evidence_id,"provider":provider,"operation":operation,"variant":variant,"case":evidence_case,"capability":capability,"status":status,"result_schema":result_schema,"row_count":row_count,"pagination":pagination,"telemetry":telemetry,"cost_class":adapter["cost_class"],"support_tier":adapter["support_tier"],"run_id":run_id,"source_commit":env("SEARCHBRIDGE_SOURCE_COMMIT"),"reason":reason}))
 }
-else if provider == "dataforseo" || provider == "serpapi" {
-	if env("SEARCHBRIDGE_ENABLE_PAID_LIVE") != "true" { print(to_json({"schema": "searchbridge.live-contract-evidence/v1", "provider": provider, "status": "external-blocked", "reason": "paid live probe not explicitly enabled"})); exit(0) }
-	command = "fetch"; tokens = concat(tokens, ["--capability", "serp.results", "--provider", provider, "--keyword", "kujo language", "--location", "United States", "--language", "en", "--device", "desktop", "--allow-paid", "--max-calls", "1", "--max-provider-units", "1"])
+if adapter["support_tier"] != "stable-live" { emit("skipped", "", "", 0, {}, {}, "", adapter["support_reason"]); exit(0) }
+mut command := ""; mut capability := ""; mut tokens := ["--page-size", "1", "--max-pages", "2", "--max-total-rows", "2", "--max-calls", "2", "--timeout", "30", "--retries", "1"]
+if provider == "google-search-console" && operation == "search-analytics" { command = "search-performance"; capability = "search.performance"; tokens = concat(tokens, ["--property", env("SEARCHBRIDGE_GSC_PROPERTY"), "--start-date", env("SEARCHBRIDGE_TEST_START_DATE"), "--end-date", env("SEARCHBRIDGE_TEST_END_DATE")]) }
+else if provider == "google-search-console" && operation == "inspect-url" { command = "inspect-url"; capability = "url.inspection"; tokens = concat(tokens, ["--property", env("SEARCHBRIDGE_GSC_PROPERTY"), "--url", env("SEARCHBRIDGE_TEST_URL")]) }
+else if provider == "google-analytics-4" && operation == "run-report" { command = "analytics"; capability = "analytics"; tokens = concat(tokens, ["--property", env("SEARCHBRIDGE_GA4_PROPERTY"), "--start-date", env("SEARCHBRIDGE_TEST_START_DATE"), "--end-date", env("SEARCHBRIDGE_TEST_END_DATE")]) }
+else if provider == "pagespeed-insights" && operation == "run-pagespeed" { mut strategy := variant; if strategy == "" { strategy = "mobile" }; command = "pagespeed"; capability = "page.performance"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL"), "--strategy", strategy]) }
+else if provider == "crux" && operation == "query-record" { mut form_factor := variant; if form_factor == "" { form_factor = "PHONE" }; command = "crux"; capability = "field.performance"; tokens = concat(tokens, ["--url", env("SEARCHBRIDGE_TEST_URL"), "--form-factor", form_factor]) }
+else { eprint("unsupported live contract operation"); exit(2) }
+if evidence_case == "empty" {
+	if env("SEARCHBRIDGE_EMPTY_TEST_URL") != "" { mut replaced := []; mut skip := false; for token in tokens { if skip { replaced = push(replaced, env("SEARCHBRIDGE_EMPTY_TEST_URL")); skip = false } else { replaced = push(replaced, token); if token == "--url" { skip = true } } }; tokens = replaced }
+	if env("SEARCHBRIDGE_EMPTY_TEST_START_DATE") != "" && env("SEARCHBRIDGE_EMPTY_TEST_END_DATE") != "" { mut replaced := []; mut replace_start := false; mut replace_end := false; for token in tokens { if replace_start { replaced = push(replaced, env("SEARCHBRIDGE_EMPTY_TEST_START_DATE")); replace_start = false } else if replace_end { replaced = push(replaced, env("SEARCHBRIDGE_EMPTY_TEST_END_DATE")); replace_end = false } else { replaced = push(replaced, token); if token == "--start-date" { replace_start = true } else if token == "--end-date" { replace_end = true } } }; tokens = replaced }
 }
-else if provider == "cloudflare" { command = "fetch"; tokens = concat(tokens, ["--capability", "edge.analytics", "--provider", "cloudflare", "--start-date", env("SEARCHBRIDGE_TEST_START_DATE"), "--end-date", env("SEARCHBRIDGE_TEST_END_DATE"), "--max-calls", "1"] ) }
-else { eprint("unsupported live contract provider"); exit(2) }
-prepared := prepare_options(command, tokens); if !prepared["ok"] { eprint(clean_error(prepared["error"])); exit(1) }
-result := dispatch(command, prepared["value"]); if !result["ok"] { eprint(clean_error(result["error"])); exit(1) }
-value := result["value"]
-print(to_json({"schema": "searchbridge.live-contract-evidence/v1", "provider": provider, "capability": value["capability"], "result_schema": value["schema"], "row_count": len(value["rows"]), "pagination": value["pagination"], "telemetry": value["telemetry"]}))
+if evidence_case == "invalid-credential" {
+	if provider == "google-search-console" { env_set("SEARCHBRIDGE_GSC_TOKEN", "invalid-qualification-credential") }
+	else if provider == "google-analytics-4" { env_set("SEARCHBRIDGE_GA4_TOKEN", "invalid-qualification-credential") }
+	else if provider == "pagespeed-insights" { env_set("SEARCHBRIDGE_PAGESPEED_KEY", "invalid-qualification-credential") }
+	else if provider == "crux" { env_set("SEARCHBRIDGE_CRUX_KEY", "invalid-qualification-credential") }
+}
+prepared := prepare_options(command, tokens); if !prepared["ok"] { emit("blocked", capability, "", 0, {}, {}, "", clean_error(prepared["error"])); exit(0) }
+result := dispatch(command, prepared["value"])
+if evidence_case == "invalid-credential" {
+	if result["ok"] { emit("failed", capability, result["value"]["schema"], len(result["value"]["rows"]), dict_get(result["value"], "pagination", {}), {}, dict_get(dict_get(result["value"], "provenance", {}), "run_id", ""), "invalid credential unexpectedly succeeded") }
+	else { emit("passed", capability, "", 0, {}, {}, "", "invalid credential rejected with a redacted provider-scoped error") }
+	exit(0)
+}
+if !result["ok"] { emit("blocked", capability, "", 0, {}, {}, "", clean_error(result["error"])); exit(0) }
+value := result["value"]; telemetry := dict_get(value, "telemetry", {}); safe_telemetry := {"attempts":dict_get(telemetry,"attempts",0),"retries":dict_get(telemetry,"retries",0),"response_bytes":dict_get(telemetry,"response_bytes",0),"rows":dict_get(telemetry,"rows",len(value["rows"])),"truncated":dict_get(telemetry,"truncated",false)}
+mut passed := true; if evidence_case == "empty" && len(value["rows"]) != 0 { passed = false }
+mut status := "passed"; mut reason := ""; if !passed { status = "failed"; reason = "expected an empty normalized result" }
+emit(status, capability, value["schema"], len(value["rows"]), dict_get(value, "pagination", {}), safe_telemetry, dict_get(dict_get(value, "provenance", {}), "run_id", ""), reason)

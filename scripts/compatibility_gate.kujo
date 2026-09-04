@@ -1,5 +1,7 @@
-manifest := parse_json(read_file("fixtures/golden/0.2/manifest.json"))
-if manifest["compatible_series"] != "0.2.x" { eprint("golden compatibility series changed"); exit(1) }
+legacy_manifest := parse_json(read_file("fixtures/golden/0.2/manifest.json"))
+if legacy_manifest["compatible_series"] != "0.2.x" { eprint("legacy golden compatibility series changed"); exit(1) }
+current_manifest := parse_json(read_file("fixtures/golden/1.0/manifest.json"))
+if current_manifest["compatible_series"] != "1.x" { eprint("current golden compatibility series changed"); exit(1) }
 expected := {
 	"result-search-performance.json": "searchbridge.result/v1", "result-analytics.json": "searchbridge.result/v1",
 	"result-url-inspection.json": "searchbridge.result/v1", "result-page-performance.json": "searchbridge.result/v1",
@@ -10,11 +12,13 @@ expected := {
 	"batch.json": "searchbridge.batch/v1"
 }
 for name in keys(expected) {
-	path := "fixtures/golden/0.2/" + name
-	if file_exists(path) == false { eprint("missing golden document: " + name); exit(1) }
-	document := parse_json(read_file(path))
-	if document["schema"] != expected[name] { eprint("breaking schema change in " + name); exit(1) }
-	if starts_with(name, "result-") && (has_key(document, "rows") == false || has_key(document, "capability") == false || has_key(document, "provider") == false) { eprint("result reader cannot accept " + name); exit(1) }
-	if name == "submission.json" && (has_key(document, "authorization") == false || has_key(document, "received") == false || has_key(document, "indexed") == false) { eprint("submission reader cannot accept golden document"); exit(1) }
+	for series in ["0.2", "1.0"] {
+		path := "fixtures/golden/" + series + "/" + name
+		if file_exists(path) == false { eprint("missing " + series + " golden document: " + name); exit(1) }
+		document := parse_json(read_file(path))
+		if document["schema"] != expected[name] { eprint("breaking schema change in " + series + "/" + name); exit(1) }
+		if starts_with(name, "result-") && (has_key(document, "rows") == false || has_key(document, "capability") == false || has_key(document, "provider") == false) { eprint("result reader cannot accept " + series + "/" + name); exit(1) }
+		if name == "submission.json" && (has_key(document, "authorization") == false || has_key(document, "received") == false || has_key(document, "indexed") == false) { eprint("submission reader cannot accept " + series + " golden document"); exit(1) }
+	}
 }
-print(to_string(len(keys(expected))) + " public 0.2.x golden documents remain readable.")
+print(to_string(len(keys(expected))) + " public contracts pass current 1.x and legacy 0.2.x readers.")

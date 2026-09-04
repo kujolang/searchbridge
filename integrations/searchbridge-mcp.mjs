@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
+import { lstatSync, realpathSync } from 'node:fs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const version = (await readFile(resolve(root, 'VERSION'), 'utf8')).trim();
 const executable = process.env.SEARCHBRIDGE_BIN || resolve(root, 'searchbridge');
 const catalog = JSON.parse(await readFile(resolve(root, 'integrations/searchbridge-tools.json'), 'utf8'));
-const tools = new Map(catalog.tools.map((tool) => [tool.name, tool]));
+const evidenceRoot = process.env.SEARCHBRIDGE_MCP_EVIDENCE_ROOT ? realpathSync(process.env.SEARCHBRIDGE_MCP_EVIDENCE_ROOT) : null;
+const visibleTools = catalog.tools.filter((tool) => tool.name !== 'searchbridge_query' || evidenceRoot !== null);
+const tools = new Map(visibleTools.map((tool) => [tool.name, tool]));
 const protocolVersions = ['2025-11-25', '2025-06-18'];
 const maxMessageBytes = 4 * 1024 * 1024;
 
@@ -21,6 +25,24 @@ function boundedInteger(value, fallback) {
   return value;
 }
 
+function boundedCalls(value) {
+  if (!Number.isInteger(value) || value < 1 || value > 1000) throw new Error('max_calls must be an integer from 1 to 1,000');
+  return value;
+}
+
+function containedEvidencePath(inputPath) {
+  if (evidenceRoot === null) throw new Error('searchbridge_query requires SEARCHBRIDGE_MCP_EVIDENCE_ROOT');
+  const requested = resolve(evidenceRoot, inputPath);
+  const lexical = relative(evidenceRoot, requested);
+  if (lexical.startsWith('..') || isAbsolute(lexical)) throw new Error('evidence_path escapes SEARCHBRIDGE_MCP_EVIDENCE_ROOT');
+  const requestedStat = lstatSync(requested);
+  if (requestedStat.isSymbolicLink()) throw new Error('evidence_path must not be a symlink');
+  const canonical = realpathSync(requested);
+  const canonicalRelative = relative(evidenceRoot, canonical);
+  if (canonicalRelative.startsWith('..') || isAbsolute(canonicalRelative) || !lstatSync(canonical).isFile()) throw new Error('evidence_path must be a contained regular file');
+  return canonical;
+}
+
 function argumentsFor(name, input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('arguments must be an object');
   if (name === 'searchbridge_catalog') return ['agent-catalog'];
@@ -30,20 +52,20 @@ function argumentsFor(name, input) {
     if (input.fixture === true) args.push('--fixture', '--offline');
     return args;
   }
-  if (name === 'searchbridge_query') {
-    if (typeof input.evidence_path !== 'string' || input.evidence_path.length === 0) throw new Error('evidence_path is required');
-    const args = ['evidence-query', '--evidence-path', input.evidence_path, '--max-total-rows', String(boundedInteger(input.max_total_rows, 100))];
+	if (name === 'searchbridge_query') {
+	  if (typeof input.evidence_path !== 'string' || input.evidence_path.length === 0) throw new Error('evidence_path is required');
+	  const args = ['evidence-query', '--evidence-path', containedEvidencePath(input.evidence_path), '--max-total-rows', String(boundedInteger(input.max_total_rows, 100))];
     if (input.filter_field !== undefined || input.filter_equals !== undefined) {
       if (typeof input.filter_field !== 'string' || typeof input.filter_equals !== 'string') throw new Error('filter_field and filter_equals must be supplied together');
       args.push('--filter-field', input.filter_field, '--filter-equals', input.filter_equals);
     }
     return args;
   }
-  if (name === 'searchbridge_submit') {
+	if (name === 'searchbridge_submit') {
     if (input.capability !== 'index.submission' || input.act !== true || input.yes !== true) throw new Error('submission requires capability index.submission and explicit act/yes confirmation');
     if (!['indexnow', 'bing-webmaster'].includes(input.provider)) throw new Error('unsupported submission provider');
     if (!Array.isArray(input.urls) || input.urls.length < 1 || input.urls.length > 1000 || input.urls.some((url) => typeof url !== 'string')) throw new Error('urls must contain 1 to 1,000 strings');
-    return ['submit', '--provider', input.provider, '--capability', 'index.submission', '--act', '--yes', ...input.urls.flatMap((url) => ['--url', url])];
+	  return ['submit', '--provider', input.provider, '--capability', 'index.submission', '--act', '--yes', '--max-calls', String(boundedCalls(input.max_calls)), ...input.urls.flatMap((url) => ['--url', url])];
   }
   throw new Error('unknown tool');
 }
@@ -71,11 +93,11 @@ async function handle(request) {
   if (request.method === 'initialize') {
     const requested = request.params?.protocolVersion;
     const negotiated = protocolVersions.includes(requested) ? requested : protocolVersions[0];
-    return { ...response, result: { protocolVersion: negotiated, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'searchbridge', version: '0.4.0' } } };
+    return { ...response, result: { protocolVersion: negotiated, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'searchbridge', version } } };
   }
   if (request.method === 'notifications/initialized') return null;
   if (request.method === 'ping') return { ...response, result: {} };
-  if (request.method === 'tools/list') return { ...response, result: { tools: catalog.tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.input_schema })) } };
+	if (request.method === 'tools/list') return { ...response, result: { tools: visibleTools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.input_schema })) } };
   if (request.method === 'tools/call') {
     const name = request.params?.name;
     if (!tools.has(name)) return { ...response, error: error(-32602, 'Unknown tool') };

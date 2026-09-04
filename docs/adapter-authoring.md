@@ -22,7 +22,9 @@ The manifest must use `searchbridge-canonical-json/v1` and satisfy
 8785 JCS: it recursively sorts object keys, removes insignificant whitespace,
 preserves array order, and delegates scalar/string serialization to the pinned
 Kujo runtime. Its detached RSA-SHA256 signature covers those exact UTF-8 bytes.
-The manifest binds every auxiliary file by SHA-256, so fixture or mapping
+`package_files` is mandatory, and every operation fixture must be a contained,
+non-symlink package file listed with its SHA-256 digest. The runtime rechecks
+that digest immediately before reading the fixture, so path traversal or fixture
 tampering fails before credentials are read. Trust uses the publisher public-key
 fingerprint; the display name is not an identity claim.
 

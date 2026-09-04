@@ -81,8 +81,8 @@ export func request_json(url, method, body, headers, policy, transport) {
 				retry_response = response
 				status := dict_get(response, "_status", dict_get(response, "status", 0)); raw := dict_get(response, "_body", dict_get(response, "body", ""))
 				if utf8_size(raw) > MAX_PROVIDER_BYTES { return failure("provider response exceeded 8 MiB") }
-				if status >= 200 && status < 300 {
-					mut payload := raw; if payload == "" { payload = "{}" }
+				if (status >= 200 && status < 300) || includes(dict_get(policy, "empty_statuses", []), status) {
+					mut payload := raw; if status < 200 || status >= 300 || payload == "" { payload = "{}" }
 					try {
 						mut parsed := null; response_format := dict_get(policy, "response_format", "json")
 						if response_format == "csv" { csv_result := bounded_csv_parse(payload, dict_get(policy, "max_total_rows", 1000), dict_get(policy, "max_csv_columns", 256), dict_get(policy, "max_csv_cell_bytes", 65536)); if !csv_result["ok"] { return csv_result }; parsed = csv_result["value"] }
@@ -155,6 +155,7 @@ export func plausible_page_contract_transport(_url, request_options) {
 }
 
 export func csv_contract_transport(_url, _request_options) { return Ok({"_status": 200, "_body": "name;value\nalpha;1\nbeta;2\n"}) }
+export func crux_empty_contract_transport(_url, _request_options) { return Ok({"_status": 404, "_body": "{\"error\":{\"message\":\"no record\"}}"}) }
 
 export func external_pagination_contract_transport(url, request_options) {
 	mut body := {}; if dict_get(request_options, "body", "") != "" { body = parse_json(request_options["body"]) }; pagination := dict_get(body, "pagination", {})

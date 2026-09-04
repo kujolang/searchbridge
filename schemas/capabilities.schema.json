@@ -21,13 +21,16 @@
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": ["provider", "live_available", "fixture_available", "write", "missing_environment"],
+              "required": ["provider", "live_available", "fixture_available", "write", "missing_environment", "credential_ready", "support_tier", "support_reason"],
               "properties": {
                 "provider": {"type": "string", "minLength": 1},
                 "live_available": {"type": "boolean"},
                 "fixture_available": {"const": true},
                 "write": {"type": "boolean"},
-                "missing_environment": {"type": "array", "items": {"type": "string"}}
+                "missing_environment": {"type": "array", "items": {"type": "string"}},
+                "credential_ready": {"type": "boolean"},
+                "support_tier": {"enum": ["stable-live", "fixture-only", "external-reference", "disabled"]},
+                "support_reason": {"type": "string", "minLength": 1}
               },
               "additionalProperties": false
             }

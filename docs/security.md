@@ -17,6 +17,8 @@ SearchBridge is a provider gateway, not a credential broker or sandbox.
 - OpenTelemetry is explicit opt-in. OTLP trace and metric payloads contain bounded operational attributes only and exclude URLs, headers, tokens, bodies, and normalized rows. A committed redaction corpus exercises this boundary.
 - Batch cancellation is cooperative: new work and retries stop when the cancel file appears, while a currently executing provider request remains bounded by its timeout.
 - Metered, expensive, and unknown live calls require explicit paid enablement plus call and provider-unit budgets before credentials or transport. Estimated and actual provider units remain separate. Fixture mode never consumes provider quota.
+- Automatic live routing selects only `stable-live` providers. Direct live use of another enabled tier requires `--allow-unverified-live` and never bypasses paid-call controls.
+- Scheduled Google reads use repository/environment-scoped workload identity to mint a 15-minute token with Search Console and Analytics read-only scopes; no credential file is created.
 - Fixed final endpoints reject user-info, fragments, private/local destinations, prefix lookalikes, and redirects. Cloudflare accepts variables for one reviewed GraphQL operation, never operator-supplied GraphQL.
 - Basic, bearer, header, query, and body credential shapes are removed from errors, request fingerprints, cache keys, and telemetry. Evidence rows remain intact and are never copied into telemetry.
 - Cursor repetition, async task IDs, polling time, retry amplification, CSV size/columns/cells, provider response bytes, and cache retention are bounded. Semrush cache/replay age cannot exceed one month.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0 — 2026-09-04
+
+- Froze the v1 provider support tiers and restricted automatic live routing to stable-live integrations.
+- Added policy-ledger and operation-level live-evidence gates, short-lived Google workload-identity authentication, and explicit non-stable live opt-in.
+- Migrated runtime, SDK, MCP, adapter compatibility, producer goldens, bundles, and release automation to the 1.x contract series while retaining promised 0.2.x readers.
+- Completed GitHub-release distribution artifacts, platform clean-install gates, support/authentication/troubleshooting documentation, and approval-gated publication.
+- Preserved capability degradation, deterministic fixtures, bounded execution, redaction, and the per-invocation `--act --yes` submission boundary.
+- Live-qualified the stable provider tier against owner-authorized GSC, GA4, PageSpeed Insights, and CrUX properties through the sanitized GitHub Actions evidence matrix.
+- Deferred the three-run weekly history, Cloudflare live-query proof, and controlled IndexNow submission to the v1.1 review without promoting either provider beyond `fixture-only`.
+
 ## 0.4.0 — 2026-09-02
 
 - Added one canonical adapter v2 registry for built-in discovery, compatibility commands, semantic routing, and signed external packages.

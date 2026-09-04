@@ -13,7 +13,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: macos-15-intel
+            platform: macos-x64
+          - os: macos-15
+            platform: macos-arm64
+          - os: windows-latest
+            platform: windows-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -51,16 +59,9 @@ jobs:
         env:
           KUJO_BIN: ${{ runner.os == 'Windows' && format('{0}/kujo/target/release/kujo.exe', github.workspace) || format('{0}/kujo/target/release/kujo', github.workspace) }}
         run: |
-          case "${RUNNER_OS}-${RUNNER_ARCH}" in
-            Linux-X64) platform=linux-x64 ;;
-            macOS-X64) platform=macos-x64 ;;
-            macOS-ARM64) platform=macos-arm64 ;;
-            Windows-X64) platform=windows-x64 ;;
-            *) echo "unsupported runner ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
-          esac
-          archive="$(bash scripts/build_runtime_bundle.sh "$platform")"
+          archive="$(bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
           first="$(bash scripts/sha256.sh "$archive" | awk '{print $1}')"
-          archive="$(bash scripts/build_runtime_bundle.sh "$platform")"
+          archive="$(bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
           second="$(bash scripts/sha256.sh "$archive" | awk '{print $1}')"
           test "$first" = "$second"
           checker="$PWD/scripts/sha256.sh"
@@ -73,7 +74,8 @@ jobs:
           install_dir="${RUNNER_TEMP}/searchbridge-offline"
           mkdir -p "$install_dir"
           tar -xzf "searchbridge/${BUNDLE_PATH}" -C "$install_dir"
-          env -i PATH="$PATH" "$install_dir/searchbridge-0.4.0/searchbridge" analytics --fixture --offline --deterministic
+          version="$(tr -d '\r\n' < searchbridge/VERSION)"
+          env -i PATH="$PATH" "$install_dir/searchbridge-${version}/searchbridge" analytics --fixture --offline --deterministic
       - name: Offline Windows bundle smoke
         if: runner.os == 'Windows'
         shell: pwsh
@@ -81,10 +83,11 @@ jobs:
           $Install = Join-Path $env:RUNNER_TEMP "searchbridge-offline"
           New-Item -ItemType Directory -Force -Path $Install | Out-Null
           tar -xzf (Join-Path "searchbridge" $env:BUNDLE_PATH) -C $Install
-          & (Join-Path $Install "searchbridge-0.4.0\searchbridge.ps1") analytics --fixture --offline --deterministic
+          $Version = (Get-Content (Join-Path "searchbridge" "VERSION") -Raw).Trim()
+          & (Join-Path $Install "searchbridge-$Version\searchbridge.ps1") analytics --fixture --offline --deterministic
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: runtime-bundle-${{ runner.os }}-${{ runner.arch }}
+          name: runtime-bundle-${{ matrix.platform }}
           path: |
             searchbridge/${{ env.BUNDLE_PATH }}
             searchbridge/${{ env.BUNDLE_PATH }}.sha256

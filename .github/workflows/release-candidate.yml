@@ -7,8 +7,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 env:
   KUJO_COMMIT: 67e880a9688dd5770d4a67311d45aa551e6a6fd6
 jobs:
@@ -59,16 +57,30 @@ jobs:
           (cd "$(dirname "$second")" && sha256sum -c "$(basename "$second").sha256")
           (cd dist && find . -type f ! -name RC-SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > RC-SHA256SUMS)
           (cd dist && sha256sum -c RC-SHA256SUMS)
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
-        with:
-          subject-path: |
-            searchbridge/dist/runtime/*.tar.gz
-            searchbridge/dist/sdk/*.tgz
-            searchbridge/dist/sdk/*.crate
-            searchbridge/dist/sdk/*.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-candidate-${{ github.sha }}
           path: searchbridge/dist
           retention-days: 90
           if-no-files-found: error
+
+  attest:
+    needs: qualify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            dist/runtime/*.tar.gz
+            dist/sdk/*.tgz
+            dist/sdk/*.crate
+            dist/sdk/*.tar.gz
