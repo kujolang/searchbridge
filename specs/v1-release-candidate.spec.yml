@@ -2,7 +2,7 @@ name: "SearchBridge v1.0 release candidate"
 goal: "Deliver a verified no-extra-cost v1.0 release candidate while preserving fixture-first evidence fetching, capability degradation, bounded execution, redaction, and explicit write authorization."
 version: "1.0.0"
 priority: "high"
-status: "in-progress"
+status: "review"
 background: "The v0.4.0 repository-local architecture is qualified. The v1 release candidate must make support tiers, policy status, live-operation evidence requirements, compatibility, packaging, and release gates explicit without performing paid calls or release actions."
 scope: "Stable-live candidate contracts for Google Search Console, Google Analytics 4, PageSpeed Insights, Chrome UX Report, Cloudflare, and IndexNow; fixture-only contracts for Ahrefs, DataForSEO, SerpApi, and Bing Webmaster; the external-reference Plausible adapter and disabled Semrush adapter; and the CLI, SDK, MCP, schemas, fixtures, authentication lifecycle, packaging, documentation, security, and release-candidate evidence."
 non_goals:

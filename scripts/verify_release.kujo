@@ -26,6 +26,10 @@ tag_ref := run(["git", "ls-remote", "https://github.com/" + repository + ".git",
 if trim(tag_ref) == "" { fail("release tag does not exist") }
 run(["git", "init", "--quiet", "tag-verification"], {"cwd": workspace, "timeout_ms": 30000, "max_output_bytes": 65536})
 tag_repo := path_join(workspace, "tag-verification"); run(["git", "remote", "add", "origin", "https://github.com/" + repository + ".git"], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536}); run(["git", "fetch", "--quiet", "--depth", "1", "origin", "refs/tags/" + tag + ":refs/tags/" + tag], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536})
+	expected_tree := path_join(workspace, "expected-tree"); tar_tree := path_join(workspace, "tar-tree"); zip_tree := path_join(workspace, "zip-tree"); create_dir(expected_tree); create_dir(tar_tree); create_dir(zip_tree)
+	expected_archive := path_join(workspace, "expected.tar"); run(["git", "archive", "--format=tar", "--prefix=searchbridge-" + substring(tag, 1, len(tag)) + "/", "--output", expected_archive, tag], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536}); run(["tar", "-xf", expected_archive, "-C", expected_tree], {"timeout_ms": 30000, "max_output_bytes": 65536})
+	run(["tar", "-xzf", archive, "-C", tar_tree], {"timeout_ms": 30000, "max_output_bytes": 65536}); run(["unzip", "-q", path_join(workspace, "searchbridge-" + substring(tag, 1, len(tag)) + ".zip"), "-d", zip_tree], {"timeout_ms": 30000, "max_output_bytes": 65536})
+	run(["diff", "-qr", expected_tree, tar_tree], {"timeout_ms": 30000, "max_output_bytes": 1048576}); run(["diff", "-qr", expected_tree, zip_tree], {"timeout_ms": 30000, "max_output_bytes": 1048576})
 keys := run(["curl", "--fail", "--location", "--silent", "--show-error", "https://github.com/robertdevore.keys"], {"timeout_ms": 30000, "max_output_bytes": 65536}); mut allowed := ""; for key in lines(keys) { if trim(key) != "" { allowed = allowed + "deviodigital@gmail.com " + trim(key) + "\n" } }; allowed_path := path_join(workspace, "allowed_signers"); write_file(allowed_path, allowed, true)
 run(["git", "-c", "gpg.format=ssh", "-c", "gpg.ssh.allowedSignersFile=" + allowed_path, "verify-tag", tag], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536})
 commit_sha := trim(run(["git", "rev-list", "-n", "1", tag], {"cwd": tag_repo, "timeout_ms": 30000, "max_output_bytes": 65536}))
@@ -33,4 +37,4 @@ workflow_runs := run(["curl", "--fail", "--location", "--silent", "--show-error"
 mut platform_success := false
 for item in parse_json(workflow_runs)["workflow_runs"] { if item["conclusion"] == "success" { platform_success = true } }
 if !platform_success { fail("no successful platform-smoke evidence was found") }
-print(to_json({"schema": "searchbridge.independent-release-verification/v1", "tag": tag, "commit": commit_sha, "repository": repository, "checkout_used": false, "checksums": "verified", "archive": "extracted-list-verified", "attestation": "verified", "tag_signature": "verified", "platform_smoke": "verified"}))
+print(to_json({"schema": "searchbridge.independent-release-verification/v1", "tag": tag, "commit": commit_sha, "repository": repository, "checkout_used": false, "checksums": "verified", "archive": "content-matches-signed-tag", "attestation": "verified", "tag_signature": "verified", "platform_smoke": "verified"}))

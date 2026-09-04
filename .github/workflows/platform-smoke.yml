@@ -61,7 +61,7 @@ jobs:
         run: |
           archive="$(bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
           first="$(bash scripts/sha256.sh "$archive" | awk '{print $1}')"
-          archive="$(bash scripts/build_runtime_bundle.sh "$platform")"
+          archive="$(bash scripts/build_runtime_bundle.sh '${{ matrix.platform }}')"
           second="$(bash scripts/sha256.sh "$archive" | awk '{print $1}')"
           test "$first" = "$second"
           checker="$PWD/scripts/sha256.sh"

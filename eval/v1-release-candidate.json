@@ -10,7 +10,7 @@
   "allowed_paths": ["/Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge"],
   "redaction_audit_mode": true,
   "tests": [
-    {"name":"CLI help and commands","check":"output_contains","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge --help'","expected":"--allow-unverified-live"}},
+    {"name":"CLI help and commands","check":"output_contains","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge --help | grep -- --allow-unverified-live'","expected":"--allow-unverified-live"}},
     {"name":"CLI version","check":"output_contains","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge version'","expected":"1.0.0"}},
     {"name":"Unknown command exit","check":"exit_code_equals","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge not-a-command'","expected":2}},
     {"name":"Fixture normalized envelope","check":"stdout_json_matches_shape","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge analytics --fixture --offline --deterministic'","required_keys":["schema","capability","provider","mode","rows","pagination","telemetry","provenance"]}},
