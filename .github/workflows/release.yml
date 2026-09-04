@@ -8,6 +8,11 @@ on:
         description: Existing immutable v1 tag to rebuild and publish
         required: true
         type: string
+      reuse_run_id:
+        description: Prior release run whose exact-tag artifacts should be published
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 env:
@@ -15,6 +20,7 @@ env:
   RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 jobs:
   runtime-bundles:
+    if: ${{ inputs.reuse_run_id == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +85,7 @@ jobs:
           if-no-files-found: error
 
   metadata-and-sdks:
+    if: ${{ inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -128,7 +135,7 @@ jobs:
 
   publish:
     needs: [runtime-bundles, metadata-and-sdks]
-    if: ${{ vars.SEARCHBRIDGE_PUBLIC_RELEASE_APPROVED == 'true' }}
+    if: ${{ always() && vars.SEARCHBRIDGE_PUBLIC_RELEASE_APPROVED == 'true' && (inputs.reuse_run_id != '' || (needs.runtime-bundles.result == 'success' && needs.metadata-and-sdks.result == 'success')) }}
     runs-on: ubuntu-latest
     environment: public-release
     permissions:
@@ -136,16 +143,56 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
+      - name: Validate release source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" =~ ^v1\.[0-9]+\.[0-9]+$ ]]
+          git show-ref --verify --quiet "refs/tags/$RELEASE_REF"
+          test "v$(tr -d '\r\n' < VERSION)" = "$RELEASE_REF"
+          if [[ -n "$REUSE_RUN_ID" ]]; then
+            [[ "$REUSE_RUN_ID" =~ ^[0-9]+$ ]]
+            workflow_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml" --jq .id)"
+            run_identity="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN_ID" --jq '[.workflow_id, .event, .head_branch] | @tsv')"
+            test "$run_identity" = "$(printf '%s\tworkflow_dispatch\tmain' "$workflow_id")"
+            artifact_names="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REUSE_RUN_ID/artifacts?per_page=100" --jq '[.artifacts[] | select(.expired == false) | .name] | sort | join("\n")')"
+            expected_names="$(printf '%s\n' release-metadata-sdks release-runtime-linux-x64 release-runtime-macos-arm64 release-runtime-macos-x64 release-runtime-windows-x64)"
+            test "$artifact_names" = "$expected_names"
+          fi
       - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e
         with:
           pattern: release-*
           path: dist
           merge-multiple: true
+          run-id: ${{ inputs.reuse_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify aggregate release set
         run: |
           set -euo pipefail
-          find dist -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
-          (cd dist && sha256sum -c SHA256SUMS)
+          cd dist
+          version="${RELEASE_REF#v}"
+          for required in \
+            "searchbridge-$version-linux-x64.tar.gz" \
+            "searchbridge-$version-macos-arm64.tar.gz" \
+            "searchbridge-$version-macos-x64.tar.gz" \
+            "searchbridge-$version-windows-x64.tar.gz" \
+            "searchbridge-$version.tar.gz" \
+            "searchbridge-$version.zip" \
+            "searchbridge-$version.spdx.json" \
+            "searchbridge-$version.provenance.json" \
+            "sdk/kujolang-searchbridge-$version.tgz" \
+            "sdk/searchbridge-$version.crate" \
+            "sdk/searchbridge-go-$version.tar.gz"; do
+            test -s "$required"
+          done
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: 'dist/*'
