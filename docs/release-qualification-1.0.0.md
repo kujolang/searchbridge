@@ -31,7 +31,11 @@ The verified annotated tag `v1.0.0` resolves to reviewed commit `70a63c0b0e25e7b
 
 The initial tag-triggered [publisher run 33914379888](https://github.com/kujolang/searchbridge/actions/runs/33914379888) stopped before publication when Windows selected Git Bash's incomplete Perl runtime. Protected repair PR #11 moved Cargo to each runner's native shell. Exact-tag [artifact run 33918979966](https://github.com/kujolang/searchbridge/actions/runs/33918979966) then passed metadata plus all four runtime builds. Its first publish attempt stopped before release creation on an aggregate-checksum path error; protected repair PR #12 corrected the verifier and added a guarded same-workflow/main-branch artifact-reuse path. [Publication run 33923754717](https://github.com/kujolang/searchbridge/actions/runs/33923754717) validated those exact artifacts, verified the aggregate set, attested it, and created the release.
 
+Protected follow-up PR #13 made nested SDK artifacts part of the required automatic publication set. Final [publication run 33926408453](https://github.com/kujolang/searchbridge/actions/runs/33926408453) reused the same validated artifact run, flattened and required every public SDK asset, reverified both checksum manifests, attested the set, and published all 18 release assets without manual supplementation.
+
 [Independent release verification run 33923978557](https://github.com/kujolang/searchbridge/actions/runs/33923978557) downloaded the public release without the build checkout, verified checksums and both source archives against the signed tag tree, and passed. GitHub's attestation API also resolves in-toto attestations for the published TypeScript, Rust, and Go SDK archive digests.
+
+After the final automatic publication, [independent verification run 33926552016](https://github.com/kujolang/searchbridge/actions/runs/33926552016) repeated the public, checkout-free verification and passed.
 
 The deterministic local command is:
 
