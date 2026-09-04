@@ -1,0 +1,21 @@
+from src.core import providers
+
+ledger := parse_json(read_file("docs/provider-policy-ledger.json"))
+schema := parse_json(read_file("schemas/provider-policy-ledger.schema.json")); mut runtime_schema := {}; for key in keys(schema) { if key != "$schema" && key != "$id" { runtime_schema[key] := schema[key] } }
+validated := json_schema_validate(ledger, runtime_schema); if !validated["valid"] { eprint("provider policy ledger does not satisfy its schema"); exit(1) }
+catalog := providers(); mut records := {}; for item in ledger["providers"] { records[item["id"]] := item }
+if sort(keys(records)) != sort(keys(catalog)) { eprint("provider policy ledger catalog drift"); exit(1) }
+mut supplied := {}; if len(args()) > 1 && args()[0] == "--require-live" { for line in read_lines(args()[1]) { if trim(line) != "" { evidence := parse_json(line); if evidence["status"] == "passed" { supplied[evidence["provider"] + ":" + evidence["evidence_id"]] := true } } } }
+func evidence_present(policy, provider_id, required_id, supplied_ids) { if has_key(supplied_ids, provider_id + ":" + required_id) == 1 { return true }; for stored_evidence in policy["live_evidence"] { if stored_evidence["id"] == required_id && stored_evidence["status"] == "passed" { return true } }; return false }
+mut missing_live := []
+for id in sort(keys(catalog)) {
+	provider := catalog[id]; policy := records[id]
+	if policy["support_tier"] != provider["support_tier"] { eprint(id + " support tier policy drift"); exit(1) }
+	if policy["max_cache_age_seconds"] != provider["retention"]["max_cache_age_seconds"] { eprint(id + " retention policy drift"); exit(1) }
+	if provider["support_tier"] == "stable-live" {
+		for required in policy["required_evidence"] { if !evidence_present(policy, id, required, supplied) { missing_live = push(missing_live, id + ":" + required) } }
+	}
+}
+mut strict := false; if len(args()) > 0 && args()[0] == "--require-live" { strict = true }
+if strict && len(missing_live) > 0 { eprint("stable-live evidence incomplete: " + join(missing_live, ",")); exit(1) }
+print(to_json({"schema":"searchbridge.provider-readiness/v1","providers":len(keys(catalog)),"policy_current":true,"missing_live_evidence":missing_live,"strict":strict}))

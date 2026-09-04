@@ -21,7 +21,14 @@ the bundle twice, requires byte-identical hashes, extracts it into a clean
 temporary directory, and executes an offline fixture with an empty environment.
 The bundle and checksum are retained as workflow evidence.
 
-To install, verify the adjacent `.sha256`, extract the archive, and put its
+To install from the supported GitHub release channel, download the archive and
+its adjacent `.sha256`, verify the checksum, extract the archive, and put its
 directory on `PATH` or invoke `searchbridge` / `searchbridge.ps1` directly.
 Credentials are still supplied only through the operator's environment for live
 runs; they are never included in a bundle.
+
+To upgrade, repeat those steps into a new directory, run `doctor` plus a fixture
+smoke before switching `PATH`, and retain the previous verified directory for
+rollback. Uninstall by removing only the extracted SearchBridge directory;
+cache, evidence, and task-state directories are operator data and are not
+removed automatically.

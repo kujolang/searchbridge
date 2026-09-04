@@ -37,3 +37,10 @@ pub struct SearchBridgeBatch {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchBridgeMultiResult { pub schema: String, pub capability: String, pub routing: Value, pub budget: Value, pub succeeded: u32, pub failed: u32, pub results: Vec<Value>, #[serde(default)] pub provenance: Option<SearchBridgeProvenance> }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SearchBridgeSupportTier { StableLive, FixtureOnly, ExternalReference, Disabled }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchBridgeProviderSupport { pub provider: String, pub support_tier: SearchBridgeSupportTier, pub support_reason: String }

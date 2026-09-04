@@ -8,7 +8,7 @@ from src.registry import resolve, operation_for, adapters
 from src.provider_runtime import execute_new_provider
 from src.cache import maintain_cache
 
-func bool_flags() { return ["fixture", "offline", "replay", "resume-task", "deterministic", "act", "yes", "cache-require-encryption", "allow-paid"] }
+func bool_flags() { return ["fixture", "offline", "replay", "resume-task", "deterministic", "act", "yes", "cache-require-encryption", "allow-paid", "allow-unverified-live"] }
 func value_flags() { return ["out", "timeout", "retries", "limit", "page-size", "max-pages", "max-total-rows", "max-output-bytes", "max-output-tokens", "provider", "property", "start-date", "end-date", "dimensions", "metrics", "url", "strategy", "form-factor", "target", "keyword", "country", "location", "language", "device", "operation", "route-preferences", "enabled-providers", "max-providers", "max-calls", "max-provider-units", "max-polls", "max-elapsed-ms", "key-location", "endpoint", "capability", "format", "cache-dir", "cache-max-age", "cache-encryption-key-env", "replay-capabilities", "cache-action", "cache-old-key-env", "cache-new-key-env", "task-state-dir", "task-state-max-age", "config", "profile", "health-policy", "degraded-exit-code", "require-capabilities", "commands", "max-concurrency", "cancel-file", "adapter-manifest", "adapter-signature", "adapter-key-env", "adapter-allow-capabilities", "adapter-allow-endpoints", "adapter-allow-credentials", "otel-endpoint", "otel-service-name", "evidence-path", "filter-field", "filter-equals", "join-path", "left-field", "right-field", "join-strategy", "join-temp-dir", "max-join-disk-bytes"] }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }
@@ -17,7 +17,7 @@ func commands() { return ["doctor", "capabilities", "providers", "agent-catalog"
 
 func default_options() {
 	return {
-		"fixture": false, "offline": false, "replay": false, "resume_task": false, "deterministic": false, "act": false, "yes": false, "cache_require_encryption": false, "allow_paid": false,
+		"fixture": false, "offline": false, "replay": false, "resume_task": false, "deterministic": false, "act": false, "yes": false, "cache_require_encryption": false, "allow_paid": false, "allow_unverified_live": false,
 		"out": "", "timeout": 30.0, "retries": 2, "limit": 100, "page_size": 100, "max_pages": 10, "max_total_rows": 1000,
 		"max_output_bytes": 1048576, "max_output_tokens": 250000,
 		"provider": "", "property": "", "start_date": "", "end_date": "",
@@ -172,7 +172,7 @@ export func dispatch(command, options) {
 	if command == "fetch" { return finalize_result(command, options, command_fetch(options)) }
 	if includes(["doctor", "capabilities", "providers", "agent-catalog", "version"], command) { return static_command(command, options["deterministic"]) }
 	options["current_capability"] := command_capability(command)
-	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered }; options["adapter_version"] = adapters()[options["provider"]]["adapter_version"]; options = apply_reliability(options, registered["value"]) }
+	if options["current_capability"] != "" { registered := operation_for(options["provider"], options["current_capability"]); if !registered["ok"] { return registered }; adapter := adapters()[options["provider"]]; if !options["fixture"] && adapter["support_tier"] != "stable-live" && !options["allow_unverified_live"] { return failure("direct live execution for support tier " + adapter["support_tier"] + " requires --allow-unverified-live") }; options["adapter_version"] = adapter["adapter_version"]; options = apply_reliability(options, registered["value"]) }
 	if command == "search-performance" { return finalize_result(command, options, command_search_performance(options)) }
 	if command == "analytics" { return finalize_result(command, options, command_analytics(options)) }
 	if command == "inspect-url" { return finalize_result(command, options, command_inspect(options)) }
@@ -198,6 +198,7 @@ func add_fetch_metadata(value, provider, capability, routing, options) {
 
 func fetch_one(provider, capability, options, routing) {
 	options["provider"] = provider; options["current_capability"] = capability
+	adapter := adapters()[provider]; if !options["fixture"] && adapter["support_tier"] != "stable-live" && !options["allow_unverified_live"] { return failure("direct live execution for support tier " + adapter["support_tier"] + " requires --allow-unverified-live") }
 	registered := operation_for(provider, capability); if registered["ok"] { options = apply_reliability(options, registered["value"]) }
 	if includes(["dataforseo", "serpapi", "cloudflare", "semrush"], provider) { return execute_new_provider(provider, capability, options, routing) }
 	mut result := null
@@ -216,10 +217,11 @@ func command_fetch(options) {
 	capability := options["capability"]; preferences := csv_values(options["route_preferences"]); enabled := csv_values(options["enabled_providers"])
 	if options["adapter_manifest"] != "" {
 		if includes(["auto", "all"], options["provider"]) { return failure("external adapter fetch requires its explicit provider id") }
+		if !options["fixture"] && !options["allow_unverified_live"] { return failure("direct live execution for support tier external-reference requires --allow-unverified-live") }
 		requested_provider := options["provider"]; options["current_capability"] = capability; external := run_signed_adapter(options); if !external["ok"] { return external }; if external["value"]["provider"] != requested_provider { return failure("external adapter id does not match --provider") }
 		external_value := external["value"]; external_value["routing"] := {"mode": "explicit", "selected": [requested_provider], "candidates": [{"provider": requested_provider, "accepted": true, "reason": "verified signed external adapter"}]}; return {"ok": true, "value": external_value}
 	}
-	route := resolve(capability, options["provider"], preferences, enabled); if !route["ok"] { return route }; routing := route["value"]; selected := routing["selected"]
+	route := resolve(capability, options["provider"], preferences, enabled, !options["fixture"]); if !route["ok"] { return route }; routing := route["value"]; selected := routing["selected"]
 	if len(selected) > options["max_providers"] { return failure("resolved providers exceed --max-providers") }
 	if options["provider"] != "all" { return fetch_one(selected[0], capability, options, routing) }
 	mut results := []; mut succeeded := 0; mut failed := 0; mut total_rows := 0; mut calls_used := 0; mut retries_used := 0; mut pages_used := 0; mut polls_used := 0; mut provider_units_used := 0.0; mut response_bytes_used := 0; mut result_bytes_used := 0; mut processed := 0; started := current_timestamp()
@@ -337,7 +339,7 @@ func print_help() {
 	print("Evidence join: --join-strategy auto|nested|spill --join-temp-dir PATH --max-join-disk-bytes N")
 	print("                --otel-endpoint HTTPS_OR_FILE --cancel-file PATH")
 	print("                --max-output-bytes N --max-output-tokens N")
-	print("Fetch: --capability ID --provider ID|auto|all [--route-preferences IDS]")
+	print("Fetch: --capability ID --provider ID|auto|all [--route-preferences IDS] [--allow-unverified-live]")
 	print("Run README examples for provider-specific options.")
 }
 

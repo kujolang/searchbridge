@@ -1,0 +1,1 @@
+{"authorization":{"act":true,"capability":"index.submission","confirmed":true},"claim":"Receipt means received or accepted; it does not guarantee indexing.","indexed":false,"mode":"fixture","provider":"indexnow","received":true,"schema":"searchbridge.submission/v1","status":202,"submitted_at":"1970-01-01T00:00:00Z","urls":["https://example.com/new"]}

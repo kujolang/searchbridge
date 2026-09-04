@@ -9,6 +9,9 @@ jobs:
   read-contracts:
     runs-on: ubuntu-latest
     environment: provider-contract-tests
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -20,34 +23,60 @@ jobs:
         with:
           toolchain: stable
       - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
-      - name: Run credential-gated low-row reads
+      - id: google-auth
+        name: Mint short-lived Google access token with workload identity
+        if: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GOOGLE_SERVICE_ACCOUNT != '' }}
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GOOGLE_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 900s
+          access_token_scopes: |-
+            https://www.googleapis.com/auth/webmasters.readonly
+            https://www.googleapis.com/auth/analytics.readonly
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Run bounded operation-level live matrix
         env:
           KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
-          SEARCHBRIDGE_GSC_TOKEN: ${{ secrets.SEARCHBRIDGE_GSC_TOKEN }}
+          SEARCHBRIDGE_SOURCE_COMMIT: ${{ github.sha }}
+          SEARCHBRIDGE_GSC_TOKEN: ${{ steps.google-auth.outputs.access_token || secrets.SEARCHBRIDGE_GSC_TOKEN }}
           SEARCHBRIDGE_GSC_PROPERTY: ${{ vars.SEARCHBRIDGE_GSC_PROPERTY }}
-          SEARCHBRIDGE_GA4_TOKEN: ${{ secrets.SEARCHBRIDGE_GA4_TOKEN }}
+          SEARCHBRIDGE_GA4_TOKEN: ${{ steps.google-auth.outputs.access_token || secrets.SEARCHBRIDGE_GA4_TOKEN }}
           SEARCHBRIDGE_GA4_PROPERTY: ${{ vars.SEARCHBRIDGE_GA4_PROPERTY }}
           SEARCHBRIDGE_PAGESPEED_KEY: ${{ secrets.SEARCHBRIDGE_PAGESPEED_KEY }}
           SEARCHBRIDGE_CRUX_KEY: ${{ secrets.SEARCHBRIDGE_CRUX_KEY }}
-          SEARCHBRIDGE_BING_TOKEN: ${{ secrets.SEARCHBRIDGE_BING_TOKEN }}
-          SEARCHBRIDGE_BING_PROPERTY: ${{ vars.SEARCHBRIDGE_BING_PROPERTY }}
-          SEARCHBRIDGE_AHREFS_TOKEN: ${{ secrets.SEARCHBRIDGE_AHREFS_TOKEN }}
-          SEARCHBRIDGE_AHREFS_TARGET: ${{ vars.SEARCHBRIDGE_AHREFS_TARGET }}
           SEARCHBRIDGE_TEST_URL: ${{ vars.SEARCHBRIDGE_TEST_URL }}
+          SEARCHBRIDGE_EMPTY_TEST_URL: ${{ vars.SEARCHBRIDGE_EMPTY_TEST_URL }}
           SEARCHBRIDGE_TEST_START_DATE: ${{ vars.SEARCHBRIDGE_TEST_START_DATE }}
           SEARCHBRIDGE_TEST_END_DATE: ${{ vars.SEARCHBRIDGE_TEST_END_DATE }}
-          SEARCHBRIDGE_DATAFORSEO_LOGIN: ${{ secrets.SEARCHBRIDGE_DATAFORSEO_LOGIN }}
-          SEARCHBRIDGE_DATAFORSEO_PASSWORD: ${{ secrets.SEARCHBRIDGE_DATAFORSEO_PASSWORD }}
-          SEARCHBRIDGE_SERPAPI_KEY: ${{ secrets.SEARCHBRIDGE_SERPAPI_KEY }}
-          SEARCHBRIDGE_CLOUDFLARE_TOKEN: ${{ secrets.SEARCHBRIDGE_CLOUDFLARE_TOKEN }}
-          SEARCHBRIDGE_CLOUDFLARE_ZONE_ID: ${{ secrets.SEARCHBRIDGE_CLOUDFLARE_ZONE_ID }}
-          SEARCHBRIDGE_ENABLE_PAID_LIVE: ${{ vars.SEARCHBRIDGE_ENABLE_PAID_LIVE }}
+          SEARCHBRIDGE_EMPTY_TEST_START_DATE: ${{ vars.SEARCHBRIDGE_EMPTY_TEST_START_DATE }}
+          SEARCHBRIDGE_EMPTY_TEST_END_DATE: ${{ vars.SEARCHBRIDGE_EMPTY_TEST_END_DATE }}
         run: |
           set -euo pipefail
           : > live-contract-evidence.jsonl
-          for provider in google-search-console google-analytics-4 pagespeed-insights crux bing-webmaster ahrefs dataforseo serpapi cloudflare; do
-            "$KUJO_BIN" run scripts/live_contract.kujo -- "$provider" >> live-contract-evidence.jsonl
-          done
+          run_probe() { "$KUJO_BIN" run scripts/live_contract.kujo -- "$@" >> live-contract-evidence.jsonl; }
+          run_probe google-search-console search-analytics success
+          run_probe google-search-console search-analytics empty
+          run_probe google-search-console search-analytics invalid-credential
+          run_probe google-search-console inspect-url success
+          run_probe google-search-console inspect-url invalid-credential
+          run_probe google-analytics-4 run-report success
+          run_probe google-analytics-4 run-report empty
+          run_probe google-analytics-4 run-report invalid-credential
+          run_probe pagespeed-insights run-pagespeed success mobile
+          run_probe pagespeed-insights run-pagespeed success desktop
+          run_probe pagespeed-insights run-pagespeed invalid-credential
+          run_probe crux query-record success PHONE
+          run_probe crux query-record success DESKTOP
+          run_probe crux query-record success TABLET
+          run_probe crux query-record empty
+          run_probe crux query-record invalid-credential
+          "$KUJO_BIN" run scripts/provider_readiness_gate.kujo -- --require-live live-contract-evidence.jsonl
+      - name: Remove any generated Google credential files
+        if: always()
+        run: find . -name 'gha-creds-*.json' -type f -delete
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

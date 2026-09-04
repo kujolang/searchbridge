@@ -14,6 +14,8 @@ while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.ku
 "$KUJO_RUNTIME" run scripts/compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_contract_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_snapshot_gate.kujo
+"$KUJO_RUNTIME" run scripts/provider_readiness_gate.kujo >/dev/null
+bash scripts/version_consistency_gate.sh
 bash scripts/run_network_fault_gate.sh
 bash scripts/cache_permission_gate.sh
 "$KUJO_RUNTIME" run scripts/generate_sdk_types.kujo

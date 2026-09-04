@@ -9,7 +9,7 @@ discovery_started := performance_now(); mut i := 0
 while i < 100 { adapters(); agent_catalog(); i = i + 1 }
 discovery_ms := performance_now() - discovery_started
 routing_started := performance_now(); i = 0
-while i < 100 { resolve("serp.results", "serpapi", [], []); resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"]); resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"]); i = i + 1 }
+while i < 100 { resolve("serp.results", "serpapi", [], [], true); resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"], false); resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"], false); i = i + 1 }
 routing_ms := performance_now() - routing_started
 
 csv := "keyword;volume\n" + repeat("keyword;1\n", row_count)

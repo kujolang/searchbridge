@@ -3,7 +3,7 @@
 ## Supported versions
 
 SearchBridge is pre-1.0 software. Security fixes are made on the current
-`0.4.x` line and on `main`; older minor lines are not supported.
+`1.x` line and on `main`; pre-1.0 lines no longer receive routine fixes.
 
 | Version | Supported |
 | --- | --- |

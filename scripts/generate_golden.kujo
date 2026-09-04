@@ -1,6 +1,6 @@
 from src.cli import prepare_options, dispatch
 
-root := "fixtures/golden/0.2"
+root := "fixtures/golden/1.0"
 if !path_is_dir("fixtures/golden") { create_dir("fixtures/golden") }
 if !path_is_dir(root) { create_dir(root) }
 
@@ -21,5 +21,5 @@ emit("result-keyword-data", "keyword-data", [])
 emit("submission", "submit", ["--url", "https://example.com/new", "--capability", "index.submission", "--act", "--yes"])
 for command in ["doctor", "capabilities", "providers", "adapter-conformance"] { emit(command, command, []) }
 emit("batch", "batch", ["--commands", "pagespeed,crux"])
-write_file(root + "/manifest.json", to_json({"schema": "searchbridge.golden-manifest/v1", "compatible_series": "0.2.x", "public_envelopes": ["result", "submission", "doctor", "capabilities", "providers", "adapter-conformance", "batch"]}) + "\n", true)
-print("Generated immutable 0.2.x golden documents.")
+write_file(root + "/manifest.json", to_json({"schema": "searchbridge.golden-manifest/v1", "compatible_series": "1.x", "legacy_reader_series": ["0.2.x"], "public_envelopes": ["result", "submission", "doctor", "capabilities", "providers", "adapter-conformance", "batch"]}) + "\n", true)
+print("Generated immutable 1.x golden documents.")

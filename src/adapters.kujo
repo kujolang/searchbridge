@@ -25,7 +25,7 @@ func allowed(values, value) { for item in values { if item == value { return tru
 
 func semver_parts(value) { if !regex_match(value, "^[0-9]+\\.[0-9]+\\.[0-9]+$") { return null }; raw := split(value, "."); return [to_int(raw[0]), to_int(raw[1]), to_int(raw[2])] }
 func semver_compare(left, right) { a := semver_parts(left); b := semver_parts(right); if type(a) == "null" || type(b) == "null" { return null }; mut i := 0; while i < 3 { if a[i] < b[i] { return -1 }; if a[i] > b[i] { return 1 }; i = i + 1 }; return 0 }
-export func adapter_version_compatible(minimum, maximum) { lower := semver_compare(VERSION, minimum); if type(lower) == "null" || lower < 0 { return false }; if maximum != "" { upper := semver_compare(VERSION, maximum); if type(upper) == "null" || upper > 0 { return false } }; runtime_parts := semver_parts(VERSION); minimum_parts := semver_parts(minimum); return runtime_parts[0] == minimum_parts[0] }
+export func adapter_version_compatible(minimum, maximum) { lower := semver_compare(VERSION, minimum); if type(lower) == "null" || lower < 0 { return false }; if maximum != "" { upper := semver_compare(VERSION, maximum); if type(upper) == "null" || upper > 0 { return false } }; runtime_parts := semver_parts(VERSION); minimum_parts := semver_parts(minimum); if runtime_parts[0] == minimum_parts[0] { return true }; return runtime_parts[0] == 1 && minimum_parts[0] == 0 && semver_compare(minimum, "0.4.0") >= 0 && maximum == "" }
 
 export func canonical_json(value) {
 	if type(value) == "dict" { mut members := []; for key in sort(keys(value)) { members = push(members, to_json(key) + ":" + canonical_json(value[key])) }; return "{" + join(members, ",") + "}" }

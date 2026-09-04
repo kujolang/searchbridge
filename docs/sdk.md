@@ -19,3 +19,9 @@ Run `bash scripts/package_sdks.sh` to compile, test, package, and create
 `dist/sdk/SHA256SUMS` plus `dist/sdk/provenance.json`. The resulting npm and
 Cargo archives and the versioned Go source archive are locally installable and
 bind their source commit and package digests.
+
+For v1, download those three archives and `dist/sdk/SHA256SUMS` from the GitHub
+release; public npm, crates.io, and Go proxy publication is not claimed. Verify
+the checksum before installing the TypeScript `.tgz`, Rust `.crate`, or Go
+source archive in a consumer workspace. Each SDK launches the independently
+verified SearchBridge runtime selected by `SEARCHBRIDGE_BIN`.

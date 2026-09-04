@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const version = (await readFile(resolve(root, 'VERSION'), 'utf8')).trim();
 const executable = process.env.SEARCHBRIDGE_BIN || resolve(root, 'searchbridge');
 const catalog = JSON.parse(await readFile(resolve(root, 'integrations/searchbridge-tools.json'), 'utf8'));
 const tools = new Map(catalog.tools.map((tool) => [tool.name, tool]));
@@ -71,7 +72,7 @@ async function handle(request) {
   if (request.method === 'initialize') {
     const requested = request.params?.protocolVersion;
     const negotiated = protocolVersions.includes(requested) ? requested : protocolVersions[0];
-    return { ...response, result: { protocolVersion: negotiated, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'searchbridge', version: '0.4.0' } } };
+    return { ...response, result: { protocolVersion: negotiated, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'searchbridge', version } } };
   }
   if (request.method === 'notifications/initialized') return null;
   if (request.method === 'ping') return { ...response, result: {} };

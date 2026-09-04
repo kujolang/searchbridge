@@ -1,5 +1,7 @@
 # SearchBridge threat model
 
+Reviewed for the v1.0 release candidate on 2026-09-04.
+
 ## 1. Scope and security objectives
 
 SearchBridge is a local CLI/SDK invoked by a human, agent, or CI runner. It
@@ -65,6 +67,8 @@ The main trust boundaries are:
 | Cache/task/evidence files are replaced, linked, corrupted, or replayed | Data disclosure, wrong result, local file damage | Owner-only directory gate, atomic writes, schema/identity/integrity/age checks, symlink rejection on critical paths, explicit maintenance confirmation | The local OS account and chosen parent directories remain trusted; use ephemeral CI directories and cache encryption for sensitive rows. |
 | SQL or JSONL content attacks spill joins | Query manipulation or resource exhaustion | Parameterized SQL, JSON parsing, 1 MiB line and 100,000-row bounds, disk budget, generated database name, cleanup | Evidence paths themselves are operator-approved local inputs. |
 | An agent triggers indexing or paid calls silently | External mutation or unexpected cost | Separate submission capability, `--act --yes`, paid enablement, call/provider-unit budgets, fixture mode with zero cost | The invoking operator determines whether an agent may pass confirmation and paid flags. |
+| Fixture coverage is mistaken for qualified live support | Unverified provider use or unexpected external behavior | Machine-readable support tiers; automatic live routing admits only `stable-live`; direct unverified live calls require an explicit flag | Stable-live claims still require current sanitized operation evidence before release. |
+| A long-lived CI credential is exposed | Provider-account access | Google workflow uses scoped workload identity and a short-lived token, does not create a credentials file, and cleans up defensively | Repository/environment trust policy and provider property roles remain owner-administered controls. |
 | A compromised dependency, workflow, or release artifact reaches users | Local code execution or forged distribution | Pinned workflow actions, dependency review/audits, CodeQL, secret scanning, SBOM, checksums, signatures, provenance, protected branch/tags | GitHub repository settings and signing keys are administrative controls and must be reviewed before each release. |
 
 No validated vulnerability was identified while constructing this model. Items

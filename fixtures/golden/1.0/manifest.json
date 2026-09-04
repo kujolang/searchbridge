@@ -1,0 +1,1 @@
+{"compatible_series":"1.x","legacy_reader_series":["0.2.x"],"public_envelopes":["result","submission","doctor","capabilities","providers","adapter-conformance","batch"],"schema":"searchbridge.golden-manifest/v1"}

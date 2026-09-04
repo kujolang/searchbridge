@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0 — release candidate
+
+- Froze the v1 provider support tiers and restricted automatic live routing to stable-live integrations.
+- Added policy-ledger and operation-level live-evidence gates, short-lived Google workload-identity authentication, and explicit non-stable live opt-in.
+- Migrated runtime, SDK, MCP, adapter compatibility, producer goldens, bundles, and release automation to the 1.x contract series while retaining promised 0.2.x readers.
+- Completed GitHub-release distribution artifacts, platform clean-install gates, support/authentication/troubleshooting documentation, and approval-gated publication.
+- Preserved capability degradation, deterministic fixtures, bounded execution, redaction, and the per-invocation `--act --yes` submission boundary.
+
 ## 0.4.0 — 2026-09-02
 
 - Added one canonical adapter v2 registry for built-in discovery, compatibility commands, semantic routing, and signed external packages.

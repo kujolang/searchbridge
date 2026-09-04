@@ -1,0 +1,86 @@
+name: "SearchBridge v1.0 release candidate"
+goal: "Deliver a verified no-extra-cost v1.0 release candidate while preserving fixture-first evidence fetching, capability degradation, bounded execution, redaction, and explicit write authorization."
+version: "1.0.0"
+priority: "high"
+status: "in-progress"
+background: "The v0.4.0 repository-local architecture is qualified. The v1 release candidate must make support tiers, policy status, live-operation evidence requirements, compatibility, packaging, and release gates explicit without performing paid calls or release actions."
+scope: "Stable-live candidate contracts for Google Search Console, Google Analytics 4, PageSpeed Insights, Chrome UX Report, Cloudflare, and IndexNow; fixture-only contracts for Ahrefs, DataForSEO, SerpApi, and Bing Webmaster; the external-reference Plausible adapter and disabled Semrush adapter; and the CLI, SDK, MCP, schemas, fixtures, authentication lifecycle, packaging, documentation, security, and release-candidate evidence."
+non_goals:
+  - "SEO interpretation, recommendations, scoring, or marketing advice"
+  - "Paid-provider subscriptions, trials, upgrades, metered calls, or billing activation"
+  - "Publishing packages, creating a public release, or tagging v1.0.0"
+relevant_systems:
+  - "Kujo CLI and SDK runtime"
+  - "GitHub Actions release and live-contract workflows"
+  - "Provider adapters and normalized evidence contracts"
+acceptance_criteria:
+  - "Every provider exposes one machine-readable support tier and reason consistently across providers, capabilities, doctor, agent catalog, SDK metadata, and documentation."
+  - "Automatic live routing selects only stable-live providers; direct live use of any other tier requires an explicit opt-in and still preserves paid-call preflight."
+  - "Every provider retains deterministic fixture and contract coverage."
+  - "Every stable-live provider has a current public policy record and complete operation-evidence requirements enforced by a release gate."
+  - "The live harness emits sanitized operation-level records with provider, operation, capability, schema, row count, pagination, bounded telemetry, cost class, support tier, run ID, and source commit."
+  - "All version surfaces, SDK contract metadata, MCP metadata, adapters, goldens, bundles, release filenames, and workflows consistently report 1.0.0."
+  - "Release-candidate artifacts are deterministic, checksum-verifiable, include SDKs, SBOM and provenance, and can be exercised outside a repository checkout."
+  - "Documentation covers install, upgrade, rollback, uninstall, each no-cost provider, agent/MCP use, SDK consumers, security, troubleshooting, compatibility, migration, and explicit limitations."
+  - "All safe local checks pass and remaining work is limited to exact external-access, scheduled-run, protected-branch, or release-approval blockers."
+eval_requirements:
+  - description: "The full repository validation suite succeeds."
+    check_type: "command_succeeds"
+    params:
+      command: "bash scripts/validate.sh"
+  - description: "Every authoritative version surface is consistent."
+    check_type: "command_succeeds"
+    params:
+      command: "bash scripts/version_consistency_gate.sh"
+  - description: "The local release-candidate artifact gate succeeds."
+    check_type: "command_succeeds"
+    params:
+      command: "bash scripts/release_candidate_gate.sh"
+  - description: "The CLI reports version 1.0.0."
+    check_type: "command_output_contains"
+    params:
+      command: "./searchbridge version"
+      contains: "1.0.0"
+  - description: "The v1 support matrix exists."
+    check_type: "file_exists"
+    params:
+      path: "docs/support-matrix.md"
+  - description: "The machine-readable provider policy ledger exists."
+    check_type: "file_exists"
+    params:
+      path: "docs/provider-policy-ledger.json"
+  - description: "The v1 release qualification record exists."
+    check_type: "file_exists"
+    params:
+      path: "docs/release-qualification-1.0.0.md"
+risks:
+  - risk: "Provider credentials and account identifiers could enter source, logs, evidence, fixtures, generated packs, or artifacts."
+    mitigation: "Use environment-only credentials, sanitized evidence schemas, redaction tests, and release-artifact secret scans."
+    severity: "critical"
+  - risk: "Conditional provider plan access can make live status differ from fixture status."
+    mitigation: "Keep Cloudflare and IndexNow candidate-live until sanitized owner-authorized evidence promotes them."
+    severity: "high"
+  - risk: "Changing the major version can silently invalidate adapter ranges or generated consumer contracts."
+    mitigation: "Use explicit migration fixtures, v1 goldens, generated consumer compilation, and one consistency gate."
+    severity: "high"
+  - risk: "Release automation can accidentally publish or tag."
+    mitigation: "Keep release operations behind explicit workflow dispatch inputs and owner approval."
+    severity: "critical"
+dependencies:
+  - "Kujo runtime 1.2.3 for deterministic repository validation"
+  - "Owner-supplied least-privilege provider access for live reads"
+  - "Explicit owner approval for IndexNow submission, protected-main merge, v1.0.0 tag, and public release"
+review_expectations:
+  - "Run focused tests and bash scripts/validate.sh before each handoff commit."
+  - "Review generated artifacts for secrets and version drift."
+  - "Verify live receipts contain no properties, URLs, rows, headers, tokens, raw provider bodies, or credential-bearing errors."
+human_approval_points:
+  - "Any external provider write or IndexNow submission"
+  - "Any paid or metered call, trial, plan upgrade, or billing activation"
+  - "Changing which conditional providers are promoted to stable-live"
+  - "Publishing packages, creating a public release, merging protected main, or creating a v1.0.0 tag"
+tags:
+  - "searchbridge"
+  - "v1"
+  - "release-candidate"
+  - "no-extra-cost"

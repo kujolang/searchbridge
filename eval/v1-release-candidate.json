@@ -1,0 +1,28 @@
+{
+  "name": "searchbridge-v1-release-candidate",
+  "description": "Outcome checks for the stable CLI, SDK, schema, safety, packaging, and documentation contracts.",
+  "version": "1.0.0",
+  "timeout_seconds": 900,
+  "stop_on_failure": false,
+  "allowed_commands": ["bash"],
+  "allowed_command_patterns": ["bash -lc"],
+  "blocked_arg_patterns": ["--allow-paid", "--act --yes", "curl", "wget", "sudo", "rm -rf"],
+  "allowed_paths": ["/Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge"],
+  "redaction_audit_mode": true,
+  "tests": [
+    {"name":"CLI help and commands","check":"output_contains","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge --help'","expected":"--allow-unverified-live"}},
+    {"name":"CLI version","check":"output_contains","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge version'","expected":"1.0.0"}},
+    {"name":"Unknown command exit","check":"exit_code_equals","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge not-a-command'","expected":2}},
+    {"name":"Fixture normalized envelope","check":"stdout_json_matches_shape","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge analytics --fixture --offline --deterministic'","required_keys":["schema","capability","provider","mode","rows","pagination","telemetry","provenance"]}},
+    {"name":"Partial capability degradation","check":"command_succeeds","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge capabilities --deterministic'"}},
+    {"name":"Automatic live excludes fixture-only providers","check":"command_fails","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge fetch --capability serp.results --provider auto'"}},
+    {"name":"Submission requires confirmation","check":"command_fails","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && ./searchbridge submit --fixture --provider indexnow --url https://example.com/page --capability index.submission'"}},
+    {"name":"Version consistency","check":"command_succeeds","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && bash scripts/version_consistency_gate.sh'"}},
+    {"name":"SDK consumer gate","check":"command_succeeds","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && bash scripts/sdk_runtime_gate.sh'"}},
+    {"name":"Release candidate packaging","check":"command_succeeds","params":{"command":"bash -lc 'cd /Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge && bash scripts/release_candidate_gate.sh'"}},
+    {"name":"Support matrix exists","check":"file_contains","params":{"path":"/Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge/docs/support-matrix.md","expected":"stable-live"}},
+    {"name":"Troubleshooting exists","check":"file_contains","params":{"path":"/Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge/docs/troubleshooting.md","expected":"Submission refused"}},
+    {"name":"v1 goldens exist","check":"file_exists","params":{"path":"/Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge/fixtures/golden/1.0/manifest.json"}},
+    {"name":"Provider policy exists","check":"json_matches_shape","params":{"path":"/Users/robertdevore/2026/Kujolang/kujo-repos/searchbridge/docs/provider-policy-ledger.json","required_keys":["schema","reviewed_at","review_by","providers"]}}
+  ]
+}

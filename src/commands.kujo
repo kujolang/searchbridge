@@ -168,7 +168,7 @@ export func command_analytics(options) {
 		mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}
 		while page < options["max_pages"] && emitted_rows < options["max_total_rows"] {
 			remaining := options["max_total_rows"] - emitted_rows; page_limit := options["page_size"]; if page_limit > remaining { page_limit = remaining }
-			body := {"dateRanges": [{"startDate": start_date, "endDate": end_date}], "dimensions": dim_body, "metrics": metric_body, "limit": to_string(page_limit), "offset": to_string(page * options["page_size"])}
+			body := {"dateRanges": [{"startDate": start_date, "endDate": end_date}], "dimensions": dim_body, "metrics": metric_body, "limit": to_string(page_limit), "offset": to_string(page * options["page_size"]), "returnPropertyQuota": true}
 			last_result = request_json("https://analyticsdata.googleapis.com/v1beta/" + property_name + ":runReport", "POST", body, auth["value"], options, options["transport"])
 			if !last_result["ok"] { if stream["enabled"] && file_exists(stream["path"]) { delete_file(stream["path"]) }; return last_result }; total_telemetry = merge_transport_telemetry(total_telemetry, last_result); page_body := provider_body(last_result); page_rows := dict_get(page_body, "rows", []); emitted_rows = emitted_rows + len(page_rows)
 			if stream["enabled"] { normalized_page := normalize_analytics(page_body, dimensions, metrics, property_name, mode(options), page_limit, options["deterministic"]); streamed := stream_page(stream, normalized_page, options); if !streamed["ok"] { return streamed }; stream = streamed["value"] }
@@ -227,12 +227,13 @@ export func command_crux(options) {
 	else {
 		key := env("SEARCHBRIDGE_CRUX_KEY")
 		if key == "" || options["url"] == "" { return failure("live CrUX requires --url and SEARCHBRIDGE_CRUX_KEY") }
-		raw_result = request_json("https://chromeuxreport.googleapis.com/v1/records:queryRecord?key=" + query_encode(key), "POST", {"url": target, "formFactor": options["form_factor"]}, {}, options, options["transport"])
+		mut request_options := options; request_options["empty_statuses"] := [404]
+		raw_result = request_json("https://chromeuxreport.googleapis.com/v1/records:queryRecord?key=" + query_encode(key), "POST", {"url": target, "formFactor": options["form_factor"]}, {}, request_options, options["transport"])
 	}
 	if !raw_result["ok"] { return raw_result }
-	raw := provider_body(raw_result); record := dict_get(raw, "record", raw)
-	row := {"url": target, "form_factor": options["form_factor"], "metrics": dict_get(record, "metrics", {}), "collection_period": dict_get(record, "collectionPeriod", null)}
-	return success(add_operations(envelope("field.performance", "crux", mode(options), [row], {"target": target}, options["deterministic"]), raw_result, options, "none", 1, "provider-quota"))
+	raw := provider_body(raw_result); mut rows := []
+	if has_key(raw, "record") || len(keys(raw)) > 0 { record := dict_get(raw, "record", raw); rows = push(rows, {"url": target, "form_factor": options["form_factor"], "metrics": dict_get(record, "metrics", {}), "collection_period": dict_get(record, "collectionPeriod", null)}) }
+	return success(add_operations(envelope("field.performance", "crux", mode(options), rows, {"target": target}, options["deterministic"]), raw_result, options, "none", 1, "provider-quota"))
 }
 
 export func command_backlinks(options) {
@@ -334,10 +335,11 @@ export func static_command(command, deterministic) {
 	if command == "capabilities" { return success(capability_report(deterministic)) }
 	if command == "agent-catalog" { return success(agent_catalog()) }
 	if command == "doctor" {
-		report := capability_report(deterministic); mut live := []; mut unavailable := []
+		report := capability_report(deterministic); catalog := providers(); mut live := []; mut unavailable := []; mut provider_status := []
 		for item in report["capabilities"] { if item["available"] { live = push(live, item["capability"]) } else { unavailable = push(unavailable, item["capability"]) } }
+		for name in sort(keys(catalog)) { item := catalog[name]; provider_status = push(provider_status, {"provider": name, "support_tier": item["support_tier"], "support_reason": item["support_reason"]}) }
 		mut health := "healthy"; if len(unavailable) > 0 { health = "degraded" }
-		return success({"schema": "searchbridge.doctor/v1", "ok": true, "health": health, "fixture_ready": true, "runtime": "kujo-native", "credentials_required_for_doctor": false, "live_capabilities": live, "unavailable_capabilities": unavailable, "warnings": ["Most API v3 requests consume Ahrefs API units."]})
+		return success({"schema": "searchbridge.doctor/v1", "ok": true, "health": health, "fixture_ready": true, "runtime": "kujo-native", "credentials_required_for_doctor": false, "live_capabilities": live, "unavailable_capabilities": unavailable, "provider_status": provider_status, "warnings": ["Fixture coverage does not imply stable live support; inspect support_tier before live routing."]})
 	}
 	return failure("unknown command")
 }

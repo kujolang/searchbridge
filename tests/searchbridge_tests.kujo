@@ -1,6 +1,6 @@
 from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_probe, result_exit_code
 from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode, query_fingerprint, value_within_bounds, dict_get
-from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, circuit_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport
+from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, circuit_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport, crux_empty_contract_transport
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, read_protected_cached_response, audit_cache, maintain_cache
 from src.adapters import validate_adapter, validate_adapter_v2, adapter_version_compatible, canonical_json, register_adapter, execute_adapter, adapter_conformance_report, load_signed_adapter, run_signed_adapter, external_pagination_contract_probe
 from src.commands import pagination_contract_probe
@@ -39,6 +39,8 @@ caps := dispatch("capabilities", doctor_options)["value"]
 check(json_schema_validate(caps, runtime_schema("schemas/capabilities.schema.json"))["valid"], "capabilities satisfy their public schema")
 provider_catalog := dispatch("providers", doctor_options)["value"]
 check(json_schema_validate(provider_catalog, runtime_schema("schemas/providers.schema.json"))["valid"], "providers satisfy their public schema")
+mut tier_counts := {}; for item in provider_catalog["providers"] { tier := item["support_tier"]; tier_counts[tier] := dict_get(tier_counts, tier, 0) + 1 }
+check(tier_counts["stable-live"] == 4 && tier_counts["fixture-only"] == 6 && tier_counts["external-reference"] == 1 && tier_counts["disabled"] == 1, "provider catalog exposes the no-extra-cost support boundary")
 mut degraded := false
 for capability in caps["capabilities"] {
 	if capability["degraded"] { degraded = true }
@@ -53,14 +55,16 @@ check(conformance["ok"] && conformance["adapter_count"] == 12 && len(conformance
 registry := adapters()
 check(validate_registry(registry)["ok"] && len(keys(registry)) == 11, "canonical adapter v2 registry validates")
 for version_case in parse_json(read_file("fixtures/adapter-version-cases.json"))["cases"] { check(adapter_version_compatible(version_case["minimum"], version_case["maximum"]) == version_case["compatible"], "adapter compatibility range fixture is enforced") }
-mut deprecated_adapter := parse_json(read_file("adapters/plausible/adapter.json")); mut deprecated_operation := deprecated_adapter["operations"][0]; deprecated_operation["deprecation"] = {"status": "deprecated", "replacement": "analytics-v2", "removal_version": "0.5.0"}; deprecated_adapter["operations"] = [deprecated_operation]; check(validate_adapter_v2(deprecated_adapter)["ok"], "future deprecation metadata remains compatible during its announced window"); deprecated_operation["deprecation"] = {"status": "deprecated", "replacement": "analytics-v2", "removal_version": "0.4.0"}; deprecated_adapter["operations"] = [deprecated_operation]; check(!validate_adapter_v2(deprecated_adapter)["ok"], "expired adapter operations fail closed at their removal version")
+mut deprecated_adapter := parse_json(read_file("adapters/plausible/adapter.json")); mut deprecated_operation := deprecated_adapter["operations"][0]; deprecated_operation["deprecation"] = {"status": "deprecated", "replacement": "analytics-v2", "removal_version": "1.1.0"}; deprecated_adapter["operations"] = [deprecated_operation]; check(validate_adapter_v2(deprecated_adapter)["ok"], "future deprecation metadata remains compatible during its announced window"); deprecated_operation["deprecation"] = {"status": "deprecated", "replacement": "analytics-v2", "removal_version": "1.0.0"}; deprecated_adapter["operations"] = [deprecated_operation]; check(!validate_adapter_v2(deprecated_adapter)["ok"], "expired adapter operations fail closed at their removal version")
 check(providers_for("serp.results", false) == ["dataforseo", "serpapi"], "registry discovers providers in deterministic order")
-explicit_route := resolve("analytics", "google-analytics-4", [], [])
+explicit_route := resolve("analytics", "google-analytics-4", [], [], true)
 check(explicit_route["ok"] && explicit_route["value"]["mode"] == "explicit", "registry resolves explicit providers")
-auto_route := resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"])
+auto_route := resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"], false)
 check(auto_route["ok"] && auto_route["value"]["selected"] == ["serpapi"], "registry auto routing follows configured preferences")
-all_route := resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"])
+all_route := resolve("serp.results", "all", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"], false)
 check(all_route["ok"] && all_route["value"]["selected"] == ["serpapi", "dataforseo"], "registry all routing preserves configured order")
+live_route := resolve("serp.results", "auto", ["serpapi", "dataforseo"], ["serpapi", "dataforseo"], true)
+check(!live_route["ok"], "automatic live routing excludes fixture-only providers")
 check(utf8_size(to_json(agent_catalog())) <= 4096, "agent catalog stays within the 4 KiB budget")
 agent_catalog_result := dispatch("agent-catalog", options_for("agent-catalog", ["--deterministic"]))
 check(agent_catalog_result["ok"] && json_schema_validate(agent_catalog_result["value"], runtime_schema("schemas/agent-catalog.schema.json"))["valid"], "agent-facing catalog is generated from registry metadata")
@@ -89,17 +93,17 @@ check(bounded_all["ok"] && bounded_all["value"]["succeeded"] == 1 && bounded_all
 mut fingerprint_options := options_for("fetch", ["--capability", "serp.results", "--provider", "serpapi", "--fixture", "--offline", "--deterministic"]); base_fingerprint := query_fingerprint(fingerprint_options, "serp.results"); fingerprint_options["start_date"] = "2026-08-01"; dated_fingerprint := query_fingerprint(fingerprint_options, "serp.results"); fingerprint_options["out"] = "/tmp/ignored-output"; output_fingerprint := query_fingerprint(fingerprint_options, "serp.results")
 check(base_fingerprint != dated_fingerprint && dated_fingerprint == output_fingerprint, "query identity covers semantic inputs and excludes execution-only output paths")
 env_set("SEARCHBRIDGE_SERPAPI_KEY", "fixture-key"); env_set("SEARCHBRIDGE_DATAFORSEO_LOGIN", "fixture-login"); env_set("SEARCHBRIDGE_DATAFORSEO_PASSWORD", "fixture-password")
-budgeted_all_options := options_for("fetch", ["--capability", "serp.results", "--provider", "all", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--allow-paid", "--max-calls", "2", "--max-provider-units", "2", "--deterministic"]); budgeted_all_options["transport"] = dataforseo_task_contract_transport; budgeted_all := dispatch("fetch", budgeted_all_options)
-check(budgeted_all["ok"] && budgeted_all["value"]["succeeded"] == 2 && budgeted_all["value"]["budget"]["calls_used"] == 2 && budgeted_all["value"]["budget"]["provider_units_used"] == 2.0, "all fetch enforces and accounts one aggregate live call/unit budget")
-exhausted_all_options := options_for("fetch", ["--capability", "serp.results", "--provider", "all", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--allow-paid", "--max-calls", "1", "--max-provider-units", "1", "--deterministic"]); exhausted_all_options["transport"] = dataforseo_task_contract_transport; exhausted_all := dispatch("fetch", exhausted_all_options)
-check(exhausted_all["ok"] && exhausted_all["value"]["succeeded"] == 1 && exhausted_all["value"]["failed"] == 1 && exhausted_all["value"]["budget"]["calls_used"] == 1, "all fetch never exceeds an aggregate call budget while retaining partial results")
-check(result_exit_code("fetch", {"schema": "searchbridge.multi-result/v1", "succeeded": 0}) == 1 && result_exit_code("fetch", exhausted_all["value"]) == 0, "all-provider failure is machine-detectable without discarding partial output")
+budgeted_all := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "all", "--route-preferences", "serpapi,dataforseo", "--enabled-providers", "serpapi,dataforseo", "--allow-paid", "--allow-unverified-live", "--max-calls", "2", "--max-provider-units", "2", "--deterministic"]))
+check(!budgeted_all["ok"] && contains(budgeted_all["error"], "no configured enabled provider") == 1, "automatic live routing excludes fixture-only providers even with direct-live opt-in")
+check(result_exit_code("fetch", {"schema": "searchbridge.multi-result/v1", "succeeded": 0}) == 1 && result_exit_code("fetch", all_fetch["value"]) == 0, "all-provider failure is machine-detectable without discarding partial output")
 env_set("SEARCHBRIDGE_SERPAPI_KEY", ""); env_set("SEARCHBRIDGE_DATAFORSEO_LOGIN", ""); env_set("SEARCHBRIDGE_DATAFORSEO_PASSWORD", "")
-paid_denied := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "serpapi"]))
+paid_denied := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "serpapi", "--allow-unverified-live"]))
 check(!paid_denied["ok"] && contains(paid_denied["error"], "allow-paid") == 1, "paid live fetch fails before credential or transport without explicit budgets")
+unverified_denied := dispatch("fetch", options_for("fetch", ["--capability", "serp.results", "--provider", "serpapi"]))
+check(!unverified_denied["ok"] && contains(unverified_denied["error"], "allow-unverified-live") == 1, "direct fixture-only live execution requires explicit opt-in")
 check(!prepare_options("fetch", ["--capability", "serp.results", "--provider", "auto"])["ok"], "auto routing cannot silently use unconfigured fallback order")
 env_set("SEARCHBRIDGE_DATAFORSEO_LOGIN", "fixture-login"); env_set("SEARCHBRIDGE_DATAFORSEO_PASSWORD", "fixture-password")
-task_fetch_options := options_for("fetch", ["--capability", "rank.tracking", "--provider", "dataforseo", "--allow-paid", "--max-calls", "2", "--max-provider-units", "1", "--max-polls", "1", "--deterministic"]); task_fetch_options["transport"] = dataforseo_task_contract_transport
+task_fetch_options := options_for("fetch", ["--capability", "rank.tracking", "--provider", "dataforseo", "--allow-paid", "--allow-unverified-live", "--max-calls", "2", "--max-provider-units", "1", "--max-polls", "1", "--deterministic"]); task_fetch_options["transport"] = dataforseo_task_contract_transport
 task_fetch := dispatch("fetch", task_fetch_options)
 check(task_fetch["ok"] && task_fetch["value"]["rows"][0]["rank"] == 4 && task_fetch["value"]["telemetry"]["task_polls"] == 1, "DataForSEO standard task flow is bounded from post through completion")
 env_set("SEARCHBRIDGE_DATAFORSEO_LOGIN", ""); env_set("SEARCHBRIDGE_DATAFORSEO_PASSWORD", "")
@@ -163,6 +167,8 @@ for item in fixture_cases {
 	}
 }
 for path in keys(before_hashes) { check(before_hashes[path] == sha256_file(path), "fixture remains immutable: " + path) }
+env_set("SEARCHBRIDGE_CRUX_KEY", "fixture-key"); crux_empty_options := options_for("crux", ["--url", "https://example.com", "--max-calls", "1", "--deterministic"]); crux_empty_options["transport"] = crux_empty_contract_transport; crux_empty := dispatch("crux", crux_empty_options); env_set("SEARCHBRIDGE_CRUX_KEY", "")
+check(crux_empty["ok"] && len(crux_empty["value"]["rows"]) == 0, "CrUX valid no-data response normalizes to an empty result")
 
 # Output files and budgets are bounded.
 output_path := "/tmp/searchbridge-output-test-" + to_string(current_timestamp()) + ".json"
@@ -227,7 +233,7 @@ check(plausible_result["ok"] && plausible_result["value"]["provider"] == "plausi
 plausible_fetch_options := options_for("fetch", ["--provider", "plausible", "--capability", "analytics", "--fixture", "--offline", "--deterministic", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"]); plausible_fetch := dispatch("fetch", plausible_fetch_options)
 check(plausible_fetch["ok"] && plausible_fetch["value"]["routing"]["candidates"][0]["reason"] == "verified signed external adapter", "semantic fetch routes an explicit signed external adapter without a core provider branch")
 env_set("SEARCHBRIDGE_PLAUSIBLE_TOKEN", "fixture-token")
-plausible_live_options := options_for("fetch", ["--provider", "plausible", "--capability", "analytics", "--property", "example.com", "--start-date", "2026-09-01", "--end-date", "2026-09-02", "--dimensions", "date,page", "--metrics", "visitors,visits", "--page-size", "2", "--max-pages", "3", "--max-total-rows", "3", "--max-calls", "3", "--deterministic", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"]); plausible_live_options["transport"] = plausible_page_contract_transport; plausible_live := dispatch("fetch", plausible_live_options)
+plausible_live_options := options_for("fetch", ["--provider", "plausible", "--capability", "analytics", "--property", "example.com", "--start-date", "2026-09-01", "--end-date", "2026-09-02", "--dimensions", "date,page", "--metrics", "visitors,visits", "--page-size", "2", "--max-pages", "3", "--max-total-rows", "3", "--max-calls", "3", "--allow-unverified-live", "--deterministic", "--adapter-manifest", "adapters/plausible/adapter.json", "--adapter-signature", "adapters/plausible/adapter.sig", "--adapter-key-env", "SEARCHBRIDGE_PLAUSIBLE_TRUST_KEY", "--adapter-allow-capabilities", "analytics", "--adapter-allow-endpoints", "https://plausible.io/api/v2/query", "--adapter-allow-credentials", "SEARCHBRIDGE_PLAUSIBLE_TOKEN"]); plausible_live_options["transport"] = plausible_page_contract_transport; plausible_live := dispatch("fetch", plausible_live_options)
 check(plausible_live["ok"] && len(plausible_live["value"]["rows"]) == 3 && plausible_live["value"]["pagination"]["pages_fetched"] == 2 && plausible_live["value"]["telemetry"]["attempts"] == 2, "external adapter templates typed query fields and enforces bounded offset pagination")
 env_set("SEARCHBRIDGE_PLAUSIBLE_TOKEN", "")
 plausible_manifest := parse_json(read_file("adapters/plausible/adapter.json")); mut malicious_operation := plausible_manifest["operations"][0]; malicious_operation["class"] = "write"; plausible_manifest["operations"] = [malicious_operation]

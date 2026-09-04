@@ -1,6 +1,6 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-0.4.0-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.0.0--rc-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
@@ -11,28 +11,36 @@ providers. It preserves measurements and provenance without interpreting SEO
 performance, so CLIs, agents, CI jobs, and data pipelines can consume one
 stable contract without coupling themselves to every provider API.
 
-Version 0.4.0 is dependency-light: the application, provider adapters,
+Version 1.0.0 is dependency-light: the application, provider adapters,
 normalizers, test suite, contract gates, release metadata generator, and
 benchmark are written in Kujo. Portable POSIX and PowerShell launchers remain
 small operating-system integration boundaries.
 
 ## Quick start
 
-SearchBridge 0.4.0 requires Kujo v1.2.3 at commit
-`67e880a9688dd5770d4a67311d45aa551e6a6fd6`. CI pins that source commit until the release is explicitly
-authorized and published; after publication it will use the checksum-verified
-runtime archive. Then:
+The supported installation is a checksum-verified self-contained GitHub release
+bundle; npm, crates.io, and package-manager availability is not claimed. After
+the owner authorizes and publishes v1.0.0, select the bundle for the operating
+system and CPU in the [support matrix](docs/support-matrix.md):
 
 ```bash
-git clone https://github.com/kujolang/searchbridge.git
-cd searchbridge
-./searchbridge doctor
-./searchbridge search-performance --fixture --offline --deterministic
-./searchbridge batch --fixture --offline --commands pagespeed,crux
+VERSION=1.0.0
+PLATFORM=linux-x64
+BASE="https://github.com/kujolang/searchbridge/releases/download/v${VERSION}"
+curl -fSLO "$BASE/searchbridge-${VERSION}-${PLATFORM}.tar.gz"
+curl -fSLO "$BASE/searchbridge-${VERSION}-${PLATFORM}.tar.gz.sha256"
+sha256sum -c "searchbridge-${VERSION}-${PLATFORM}.tar.gz.sha256"
+tar -xzf "searchbridge-${VERSION}-${PLATFORM}.tar.gz"
+"searchbridge-${VERSION}/searchbridge" doctor
+"searchbridge-${VERSION}/searchbridge" analytics --fixture --offline --deterministic
 ```
 
-The launcher uses `KUJO_BIN` when set, a sibling Kujo release build during
-ecosystem development, or `kujo` from `PATH`.
+On macOS use `shasum -a 256 -c` if `sha256sum` is unavailable. Windows users
+can run the bundled `searchbridge.ps1`. Source-checkout development still uses
+Kujo v1.2.3 at commit `67e880a9688dd5770d4a67311d45aa551e6a6fd6`.
+Installation, upgrade, rollback, and uninstall details are in the
+[runtime bundle guide](docs/runtime-bundles.md); common failure recovery is in
+[troubleshooting](docs/troubleshooting.md).
 
 ## Commands
 
@@ -53,6 +61,11 @@ ecosystem development, or `kujo` from `PATH`.
   --url https://example.com/page \
   --capability index.submission --act --yes
 ```
+
+Every discovery surface reports `stable-live`, `fixture-only`,
+`external-reference`, or `disabled`. Automatic live routing uses only
+`stable-live`; direct live use of another tier requires
+`--allow-unverified-live` and never bypasses paid-call or write confirmation.
 
 For Bing submission, `--property` can identify the verified URL-prefix
 property; otherwise SearchBridge derives the scheme and host from the first
@@ -167,20 +180,12 @@ from config files; provider credentials remain environment-only.
 
 ## Provider capabilities
 
-| Capability | Providers | Live credential |
-| --- | --- | --- |
-| `search.performance` | Google Search Console, Bing Webmaster | `SEARCHBRIDGE_GSC_TOKEN`, or `SEARCHBRIDGE_BING_TOKEN` / `SEARCHBRIDGE_BING_KEY` |
-| `analytics` | Google Analytics 4; Plausible signed reference adapter | `SEARCHBRIDGE_GA4_TOKEN`; `SEARCHBRIDGE_PLAUSIBLE_TOKEN` |
-| `url.inspection` | Google Search Console | `SEARCHBRIDGE_GSC_TOKEN` |
-| `page.performance` | PageSpeed Insights | Optional `SEARCHBRIDGE_PAGESPEED_KEY` |
-| `field.performance` | Chrome UX Report | `SEARCHBRIDGE_CRUX_KEY` |
-| `backlinks` | Ahrefs, Bing Webmaster; Semrush fixture support | Provider-specific environment credential |
-| `keyword.data` | Ahrefs, DataForSEO; Semrush fixture support | Provider-specific environment credential |
-| `serp.results` | DataForSEO, SerpApi | Provider-specific environment credential |
-| `rank.tracking` | DataForSEO; Semrush fixture support | Provider-specific environment credential |
-| `domain.visibility`, `traffic.estimate` | Semrush fixture support | Live support blocked pending commercial review |
-| `edge.analytics` | Cloudflare | `SEARCHBRIDGE_CLOUDFLARE_TOKEN`, `SEARCHBRIDGE_CLOUDFLARE_ZONE_ID` |
-| `index.submission` | IndexNow, Bing Webmaster | `SEARCHBRIDGE_INDEXNOW_KEY`, or `SEARCHBRIDGE_BING_TOKEN` / `SEARCHBRIDGE_BING_KEY` |
+| Tier | Providers |
+| --- | --- |
+| `stable-live` | Google Search Console, Google Analytics 4, PageSpeed Insights, Chrome UX Report |
+| `fixture-only` | Cloudflare, IndexNow, Bing Webmaster, Ahrefs, DataForSEO, SerpApi |
+| `external-reference` | Plausible signed adapter package |
+| `disabled` | Semrush |
 
 `capabilities` reports each provider independently. A missing analytics token,
 for example, never prevents PageSpeed or fixture work. SearchBridge accepts
@@ -197,7 +202,8 @@ fields remain `null` and are never inferred. JSON Schemas live in
 [`fixtures/providers/`](fixtures/providers/).
 Capability-specific row schemas and canonical examples are indexed in
 [`docs/row-contracts.md`](docs/row-contracts.md). Immutable 0.2.x golden
-documents protect every public envelope in the compatibility release gate.
+documents remain legacy-reader fixtures. Immutable 1.0 goldens protect every
+v1 public producer envelope in the compatibility release gate.
 Generated consumer types live in [`sdk/`](sdk/) for TypeScript, Rust, and Go;
 CI regenerates them and compiles consumers against every golden envelope and
 row schema.
@@ -273,7 +279,6 @@ See [security boundaries](docs/security.md), the [output contract](docs/output-c
 [providers and capabilities](docs/providers-and-capabilities.md), [routing and cost](docs/routing-and-cost.md),
 [adapter authoring](docs/adapter-authoring.md), [agent and MCP integration](docs/agent-mcp.md),
 [SDK usage](docs/sdk.md), [runtime bundles](docs/runtime-bundles.md), [operations runbook](docs/operations.md),
-[provider research](docs/provider-research.md), the [0.2.4 qualification](docs/release-qualification-0.2.4.md),
-the [reproducible release checklist](docs/release-checklist-0.2.x.md), the
-[v1.0 readiness checklist](docs/v1.0-readiness-checklist.md), and its
-[no-extra-cost execution plan](docs/v1.0-no-cost-execution-plan.md).
+[provider research](docs/provider-research.md), the [v1 support matrix](docs/support-matrix.md),
+[provider setup](docs/provider-setup.md), [v1 security assessment](docs/security-assessment-1.0.0.md),
+and [v1 release-candidate qualification](docs/release-qualification-1.0.0.md).
