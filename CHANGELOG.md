@@ -44,6 +44,7 @@
 - Updated TypeScript and pinned CI/release actions to their current supported major versions.
 - Aligned protected-branch review requirements with the repository's single-maintainer ownership while preserving mandatory pull requests and qualification checks.
 - Added an agent-ready v1.0 readiness checklist covering live provider proof, unattended authentication, compatibility migration, distribution, security review, and release verification.
+- Scoped the v1.0 execution plan to existing Google and Cloudflare access plus no-subscription IndexNow verification, with explicit cost stop conditions and fixture-only treatment for paid providers.
 
 ## 0.3.0 — 2026-08-12
 
