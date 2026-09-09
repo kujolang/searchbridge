@@ -35,7 +35,7 @@ jobs:
             platform: windows-x64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           path: searchbridge
@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_REF" =~ ^v1\.[0-9]+\.[0-9]+$ ]]
           git show-ref --verify --quiet "refs/tags/$RELEASE_REF"
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: kujolang/kujo
           ref: ${{ env.KUJO_COMMIT }}
@@ -88,7 +88,7 @@ jobs:
     if: ${{ inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_REF }}
@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_REF" =~ ^v1\.[0-9]+\.[0-9]+$ ]]
           git show-ref --verify --quiet "refs/tags/$RELEASE_REF"
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: kujolang/kujo
           ref: ${{ env.KUJO_COMMIT }}
@@ -143,7 +143,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_REF }}
