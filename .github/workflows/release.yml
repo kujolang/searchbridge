@@ -52,7 +52,7 @@ jobs:
           repository: kujolang/kujo
           ref: ${{ env.KUJO_COMMIT }}
           path: kujo
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: stable
       - name: Install Windows OpenSSL dependency
@@ -102,7 +102,7 @@ jobs:
           repository: kujolang/kujo
           ref: ${{ env.KUJO_COMMIT }}
           path: .runtime/kujo
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: stable
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020

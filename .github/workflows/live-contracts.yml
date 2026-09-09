@@ -19,7 +19,7 @@ jobs:
           repository: kujolang/kujo
           ref: 67e880a9688dd5770d4a67311d45aa551e6a6fd6
           path: .runtime/kujo
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: stable
       - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
