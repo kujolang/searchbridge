@@ -1,7 +1,7 @@
 required := ["SECURITY.md", ".github/CODEOWNERS", ".github/dependabot.yml", ".github/workflows/security.yml", ".github/workflows/release-candidate.yml", ".github/rulesets/main.json", ".github/rulesets/tags.json", "docs/threat-model.md", "docs/repository-governance.md"]
 for path in required { if !path_is_file(path) { eprint("missing governance artifact: " + path); exit(1) } }
 workflow := read_file(".github/workflows/security.yml")
-for check in ["github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938", "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294", "trufflesecurity/trufflehog@20652fbbdefffcdaa493a5bf57ab2ac6b1db715b"] { if contains(workflow, check) == 0 { eprint("security workflow action is not pinned as expected"); exit(1) } }
+for check in ["github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938", "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294", "trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c"] { if contains(workflow, check) == 0 { eprint("security workflow action is not pinned as expected"); exit(1) } }
 ruleset := parse_json(read_file(".github/rulesets/main.json")); if ruleset["enforcement"] != "active" || len(ruleset["rules"]) < 4 { eprint("main branch ruleset is incomplete"); exit(1) }
 ruleset_text := read_file(".github/rulesets/main.json")
 for context in ["launcher-package (ubuntu-latest, linux-x64)", "launcher-package (macos-15-intel, macos-x64)", "launcher-package (macos-15, macos-arm64)", "launcher-package (windows-latest, windows-x64)"] { if contains(ruleset_text, context) == 0 { eprint("main branch ruleset is missing platform status: " + context); exit(1) } }
