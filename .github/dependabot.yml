@@ -6,6 +6,9 @@ updates:
   - package-ecosystem: npm
     directory: /sdk/typescript
     schedule: {interval: weekly}
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: gomod
     directory: /sdk/go
     schedule: {interval: weekly}
