@@ -35,7 +35,7 @@ jobs:
             platform: windows-x64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           path: searchbridge
@@ -47,12 +47,12 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_REF" =~ ^v1\.[0-9]+\.[0-9]+$ ]]
           git show-ref --verify --quiet "refs/tags/$RELEASE_REF"
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: kujolang/kujo
           ref: ${{ env.KUJO_COMMIT }}
           path: kujo
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: stable
       - name: Install Windows OpenSSL dependency
@@ -88,7 +88,7 @@ jobs:
     if: ${{ inputs.reuse_run_id == '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_REF }}
@@ -97,12 +97,12 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_REF" =~ ^v1\.[0-9]+\.[0-9]+$ ]]
           git show-ref --verify --quiet "refs/tags/$RELEASE_REF"
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: kujolang/kujo
           ref: ${{ env.KUJO_COMMIT }}
           path: .runtime/kujo
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
         with:
           toolchain: stable
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -110,7 +110,7 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: sdk/go/go.mod
       - name: Verify tag and build SDK, source, SBOM, and provenance artifacts
@@ -143,7 +143,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_REF }}
@@ -165,7 +165,7 @@ jobs:
             expected_names="$(printf '%s\n' release-metadata-sdks release-runtime-linux-x64 release-runtime-macos-arm64 release-runtime-macos-x64 release-runtime-windows-x64)"
             test "$artifact_names" = "$expected_names"
           fi
-      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: release-*
           path: dist
