@@ -1,0 +1,14 @@
+[package]
+name = "searchbridge"
+version = "1.0.1"
+description = "Collect normalized search, analytics, performance, and indexing evidence with explicit provider budgets."
+license = "MIT"
+repository = "https://github.com/kujolang/searchbridge"
+readme = "README.md"
+
+[kujo]
+minimum_version = "1.2.3"
+entry = "searchbridge.kujo"
+sources = [".", "src"]
+includes = ["README.md", "LICENSE", "VERSION", "config", "schemas", "fixtures", "adapters", "docs", "integrations", "scripts", "tests", "examples"]
+excludes = [".git", ".github", "dist", "build", "node_modules", "target", "kennel_packages", ".kennel_tmp", "sdk/typescript/node_modules", "sdk/typescript/dist", "sdk/rust/target"]

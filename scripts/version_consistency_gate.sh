@@ -4,9 +4,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 version="$(tr -d '\r\n' < VERSION)"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-[[ "$version" == "1.0.0" ]]
+[[ "$version" == 1.* ]]
 grep -Fq "version = \"$version\"" kujo.toml
 grep -Fq "version = \"$version\"" sdk/rust/Cargo.toml
+grep -Fq "version = \"$version\"" kennel.toml
 grep -Fq "export VERSION := \"$version\"" src/core.kujo
 node -e 'const fs=require("fs");const v=fs.readFileSync("VERSION","utf8").trim();for(const p of ["sdk/typescript/package.json","sdk/typescript/package-lock.json"]){const d=JSON.parse(fs.readFileSync(p,"utf8"));if(d.version!==v)process.exit(1)}const p=JSON.parse(fs.readFileSync("sdk/typescript/package.json","utf8"));if(!/^\^22\./.test(p.devDependencies["@types/node"]))process.exit(1);const m=JSON.parse(fs.readFileSync("sdk/manifest.json","utf8"));if(m.contract_series!=="1.x")process.exit(1);const g=JSON.parse(fs.readFileSync("fixtures/golden/1.0/manifest.json","utf8"));if(g.compatible_series!=="1.x")process.exit(1)'
 awk -v version="$version" '$1=="name"&&$3=="\"searchbridge\""{seen=1;next} seen&&$1=="version"{gsub(/\"/,"",$3);exit($3==version?0:1)}' sdk/rust/Cargo.lock
