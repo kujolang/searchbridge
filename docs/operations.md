@@ -43,6 +43,17 @@ is intentionally unrecoverable. A tampered, expired, mismatched, or
 non-allowlisted replay fails closed—collect fresh evidence rather than editing
 the record.
 
+Cache identity now uses `searchbridge.request/v2` before hashing. The earlier
+substring-based credential filter could conflate distinct keywords, so old
+request hashes are deliberately not reused. Recollect approved evidence after
+upgrading; `--replay` fails closed until a matching new record exists. Cache
+record formats v1/v2 and encryption key configuration are unchanged. Migration
+and rotation preserve record identities; they do not upgrade old request hashes.
+Cache files must be regular, non-symlink files named by their 64-character hash;
+records over 16 MiB and response bodies outside provider limits are rejected.
+Future timestamps cannot extend retention. Submission receipts are never cached
+or replayed: each authorized live submission reaches its provider.
+
 ## Evidence joins
 
 Use nested joins for small inputs and `--join-strategy spill` for larger JSONL.

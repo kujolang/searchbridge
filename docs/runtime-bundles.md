@@ -32,3 +32,13 @@ smoke before switching `PATH`, and retain the previous verified directory for
 rollback. Uninstall by removing only the extracted SearchBridge directory;
 cache, evidence, and task-state directories are operator data and are not
 removed automatically.
+
+Independent source-release verification (`scripts/verify_release.kujo`) also
+requires Node.js and a GitHub CLI version supporting `gh attestation verify`.
+It verifies the signed tag and both release attestations, restricts attestation
+identity to this repository's release workflow, and compares bounded TAR/ZIP
+members to `git archive` without extracting them. Source-release archives with
+links, unsafe paths, unsupported extended metadata, mismatched executable bits,
+or altered contents fail closed. Set `SEARCHBRIDGE_VERIFY_ARCHIVE_HELPER` only
+when the checked-in Node helper is installed at a different path. Runtime
+bundles and ordinary CLI execution do not acquire new dependencies.

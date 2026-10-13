@@ -25,3 +25,7 @@ release; public npm, crates.io, and Go proxy publication is not claimed. Verify
 the checksum before installing the TypeScript `.tgz`, Rust `.crate`, or Go
 source archive in a consumer workspace. Each SDK launches the independently
 verified SearchBridge runtime selected by `SEARCHBRIDGE_BIN`.
+
+The TypeScript client drains child stderr while retaining at most 65,536 bytes
+for both buffered and streaming errors. Successful results and exit codes are
+unchanged; callers still choose CLI output budgets for evidence payloads.

@@ -23,3 +23,8 @@ Dynamic GA4 keys are constrained to string-or-null values because the requested 
 Definition-sensitive values use `schemas/metric-observation.schema.json`. A metric ID is provider-qualified. `semantic_family` aids discovery but never asserts equivalence. Arithmetic comparison is allowed only when two observations have the same non-null `comparison_key`; `null` explicitly means no equivalence claim. Traffic estimates always set `estimated` to `true`, and edge request counts use an edge-request semantic family rather than visits or sessions.
 
 Multi-provider fetches use `schemas/multi-result.schema.json`. Each successful provider value remains an intact `searchbridge.result/v1` envelope; rows from different providers are never merged.
+
+The metric contract permits at most 16 `source_extra` properties. Kujo's native
+JSON Schema subset does not implement `maxProperties`;
+`tests/metric_contract.kujo` enforces that bound explicitly before validating
+the remaining schema. The public schema retains the full constraint.
