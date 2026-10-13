@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
+static LARGE_THROTTLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static THROTTLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 fn respond(mut stream: TcpStream) {
@@ -27,6 +28,8 @@ fn respond(mut stream: TcpStream) {
         ("302 Found", "Location: /ok\r\n", "")
     } else if path == "/malformed" {
         ("200 OK", "Content-Type: application/json\r\n", "{not-json")
+    } else if path == "/throttle-huge" && LARGE_THROTTLE_COUNT.fetch_add(1, Ordering::SeqCst) == 0 {
+        ("429 Too Many Requests", "Retry-After: 999999999999999999999999999999999999999999999999999999999999999999\r\n", "{}")
     } else if path == "/throttle" && THROTTLE_COUNT.fetch_add(1, Ordering::SeqCst) == 0 {
         ("429 Too Many Requests", "Retry-After: 0\r\n", "{}")
     } else {

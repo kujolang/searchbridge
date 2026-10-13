@@ -48,16 +48,23 @@ export func async_task_sequence(states, max_polls, max_elapsed_ms) {
 
 export func bounded_csv_parse(text, max_rows, max_columns, max_cell_bytes) {
 	if utf8_size(text) > 8388608 { return failure("CSV response exceeded 8 MiB") }
-	first_line := split(text, "\n")[0]; mut delimiter := ","; if contains(first_line, ";") > contains(first_line, ",") { delimiter = ";" }
-	mut normalized := text; mut header_columns := len(split(first_line, delimiter)); unquoted := contains(text, "\"") == 0
+	mut commas := 0; mut semicolons := 0; mut in_quotes := false; mut at := 0; characters := count_chars(text)
+	while at < characters {
+		character := char_at(text, at)
+		if character == "\"" { if in_quotes && at + 1 < characters && char_at(text, at + 1) == "\"" { at = at + 2; continue }; in_quotes = !in_quotes }
+		else if !in_quotes { if character == "\n" { break }; if character == "," { commas = commas + 1 }; if character == ";" { semicolons = semicolons + 1 } }
+		at = at + 1
+	}
+	mut delimiter := ","; mut header_columns := commas + 1; if semicolons > commas { delimiter = ";"; header_columns = semicolons + 1 }
+	mut normalized := text; unquoted := contains(text, "\"") == 0
 	if unquoted && regex_match(text, "[^,;\\r\\n]{" + to_string(max_cell_bytes + 1) + ",}") { return failure("CSV cell budget exceeded") }
 	if delimiter == ";" && unquoted { normalized = replace(text, ";", ",") }
 	else if delimiter == ";" {
 		normalized = ""; mut quoted := false; mut i := 0; header_columns = 1; mut in_header := true
-		while i < count_chars(text) {
+		while i < characters {
 			character := char_at(text, i)
 			if character == "\"" {
-				if quoted && i + 1 < count_chars(text) && char_at(text, i + 1) == "\"" { normalized = normalized + "\"\""; i = i + 2; continue }
+				if quoted && i + 1 < characters && char_at(text, i + 1) == "\"" { normalized = normalized + "\"\""; i = i + 2; continue }
 				quoted = !quoted; normalized = normalized + character
 			} else if character == ";" && !quoted { normalized = normalized + ","; if in_header { header_columns = header_columns + 1 } }
 			else { normalized = normalized + character; if character == "\n" && !quoted { in_header = false } }
@@ -68,7 +75,7 @@ export func bounded_csv_parse(text, max_rows, max_columns, max_cell_bytes) {
 	try {
 		rows := parse_csv(normalized); if len(rows) > max_rows { return failure("CSV row budget exceeded") }
 		if len(rows) > 0 && len(keys(rows[0])) != header_columns { return failure("CSV contains duplicate or empty headers") }
-		if !unquoted { for row in rows { for key in keys(row) { cell := to_string(row[key]); if len(cell) > max_cell_bytes / 4 && utf8_size(cell) > max_cell_bytes { return failure("CSV cell budget exceeded") } } } }
+		if !unquoted || regex_match(text, "[^\\x00-\\x7f]") { for row in rows { for key in keys(row) { cell := to_string(row[key]); if len(cell) > max_cell_bytes / 4 && utf8_size(cell) > max_cell_bytes { return failure("CSV cell budget exceeded") } } } }
 		return success(rows)
 	} except csv_error { return failure("provider returned invalid CSV: " + clean_error(csv_error)) }
 }
@@ -82,12 +89,12 @@ export func graphql_result(payload) {
 
 export func stream_synthetic_jsonl(output_path, total_rows, max_bytes) {
 	if total_rows < 0 || total_rows > 100000 { return failure("synthetic streaming row budget exceeded") }
-	temporary := output_path + ".searchbridge-tmp-" + to_string(current_timestamp()); write_file(temporary, "", true); line := "{\"row\":{\"id\":0},\"schema\":\"searchbridge.row/v1\"}\n"; line_bytes := utf8_size(line); bytes := line_bytes * total_rows
+	temporary := output_path + ".searchbridge-tmp-" + to_string(current_timestamp()) + "-" + to_string(random_int(0, 2147483647)); write_file(temporary, "", false); line := "{\"row\":{\"id\":0},\"schema\":\"searchbridge.row/v1\"}\n"; line_bytes := utf8_size(line); bytes := line_bytes * total_rows
 	if bytes > max_bytes { delete_file(temporary); return failure("synthetic streaming byte budget exceeded") }
 	page_size := 1000; full_page := repeat(line, page_size); mut written := 0
 	while written + page_size <= total_rows { append_file(temporary, full_page); written = written + page_size }
 	if written < total_rows { append_file(temporary, repeat(line, total_rows - written)) }
-	try { if file_exists(output_path) { delete_file(output_path) }; rename_file(temporary, output_path) }
+	try { rename_file(temporary, output_path) }
 	except publish_error { if file_exists(temporary) { delete_file(temporary) }; return failure("could not publish synthetic stream") }
 	return success({"rows": total_rows, "bytes": bytes, "retained_rows": page_size, "atomic": true})
 }
