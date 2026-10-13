@@ -300,6 +300,7 @@ export func run_signed_adapter(options) {
 	if !loaded["ok"] { return loaded }; adapter := loaded["value"]; capability := options["capability"]
 	if dict_get(adapter, "contract", "") == "searchbridge-adapter/v2" { return run_signed_adapter_v2(adapter, options) }
 	if !includes(adapter["capabilities"], capability) { return failure("adapter does not implement requested capability") }
+	preflight := cost_preflight(adapter["cost_class"], options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
 	request := adapter["request"]; method := dict_get(request, "method", "GET"); endpoint := request["endpoint"]; mut headers := {}
 	credential_environment := dict_get(request, "credential_env", "")
 	if credential_environment != "" && !options["fixture"] {
