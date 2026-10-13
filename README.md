@@ -1,30 +1,37 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-1.0.0-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.0.1-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
 
-SearchBridge is a Kujo-native gateway for collecting normalized search,
-analytics, performance, backlink, and indexing evidence from multiple
-providers. It preserves measurements and provenance without interpreting SEO
-performance, so CLIs, agents, CI jobs, and data pipelines can consume one
-stable contract without coupling themselves to every provider API.
+SearchBridge collects search, analytics, page-performance, backlink, keyword,
+and indexing evidence through one CLI and typed SDKs. It returns normalized
+measurements with their sources; it does not interpret SEO performance.
 
-Version 1.0.0 is dependency-light: the application, provider adapters,
-normalizers, test suite, contract gates, release metadata generator, and
-benchmark are written in Kujo. Portable POSIX and PowerShell launchers remain
-small operating-system integration boundaries.
+The application, adapters, normalizers, tests, and release tools are written in
+Kujo. Small POSIX and PowerShell launchers run it on each supported platform.
+
+## What's new in 1.0.1
+
+This patch fixes cache-key collisions, enforces live-call budgets, bounds replay
+and SDK diagnostics, and verifies release archives before reading their contents.
+It also restores offline replay and improves document-validation speed.
+
+**Recollect cached evidence after upgrading.** Request hashes now use a new
+namespace; old caches cannot satisfy replay requests. Cache record formats and
+keys remain unchanged. Submissions never use the replay cache. See the
+[upgrade notes](docs/operations.md) and [changelog](CHANGELOG.md).
 
 ## Quick start
 
-The supported installation is a checksum-verified self-contained GitHub release
-bundle; npm, crates.io, and package-manager availability is not claimed. Select
-the v1.0.0 bundle for the operating system and CPU in the
+Install a self-contained GitHub release bundle and verify its checksum. The
+release includes SDK archives; public npm and crates.io packages are not offered.
+Select the v1.0.1 bundle for the operating system and CPU in the
 [support matrix](docs/support-matrix.md):
 
 ```bash
-VERSION=1.0.0
+VERSION=1.0.1
 PLATFORM=linux-x64
 BASE="https://github.com/kujolang/searchbridge/releases/download/v${VERSION}"
 curl -fSLO "$BASE/searchbridge-${VERSION}-${PLATFORM}.tar.gz"
@@ -36,7 +43,7 @@ tar -xzf "searchbridge-${VERSION}-${PLATFORM}.tar.gz"
 ```
 
 On macOS use `shasum -a 256 -c` if `sha256sum` is unavailable. Windows users
-can run the bundled `searchbridge.ps1`. Source-checkout development still uses
+can run the bundled `searchbridge.ps1`. Source development uses
 Kujo v1.2.3 at commit `67e880a9688dd5770d4a67311d45aa551e6a6fd6`.
 Installation, upgrade, rollback, and uninstall details are in the
 [runtime bundle guide](docs/runtime-bundles.md); common failure recovery is in
@@ -118,8 +125,8 @@ key rotation, retention cleanup, and corruption quarantine require `--act
   --cache-new-key-env SEARCHBRIDGE_NEW_KEY --act --yes
 ```
 
-The bounded `batch` worker pool overlaps independent reads up to
-`--max-concurrency`, preserves request ordering, cooperatively observes
+The `batch` command runs independent reads concurrently up to
+`--max-concurrency`, preserves request ordering, checks
 `--cancel-file` before dispatch and between retries, and returns
 `searchbridge.batch/v1` partial-success records. Mutation commands cannot enter
 a batch. Live GSC and GA4 JSONL exports normalize each page and append it to a

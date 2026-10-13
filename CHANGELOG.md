@@ -1,13 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 — 2026-10-13
+
+### Distribution
+
+- Added a versioned Kennel manifest so new releases can enter the official registry without a legacy manifest adaptation.
 
 ### Fixed
 
 - Corrected cache request collisions, confined cache maintenance, enforced encrypted/bounded replay, and separated submissions from replay. Existing caches need recollection under the new request identity.
 - Enforced live budgets for legacy adapters and MCP fetches; restored offline replay, safe output replacement, quoted/Unicode CSV handling, and bounded retry/SDK diagnostics.
 - Added regression gates and cryptographic independent release verification without archive extraction; batched document validation while retaining all contract checks.
-
 - Hardened immutable-tag release recovery, native Windows runtime builds, aggregate checksum paths, guarded artifact reuse, and flattened public SDK publication after the 1.0.0 release workflow exposed those fail-closed packaging defects.
 
 ## 1.0.0 — 2026-09-04
