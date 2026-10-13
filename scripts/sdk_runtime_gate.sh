@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   npm ci
   npm run check
   npm run build
+  node --test dist/client.test.js
   node dist/example.js
 )
 (
