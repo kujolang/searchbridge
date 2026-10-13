@@ -11,7 +11,15 @@ Set `SEARCHBRIDGE_MCP_EVIDENCE_ROOT` to the canonical directory that the local
 evidence-query tool may read. The server omits `searchbridge_query` when this
 root is absent and rejects path escapes, symlinks, and non-regular files.
 The server negotiates MCP `2025-11-25` and `2025-06-18`, caps each inbound
-message at 4 MiB, and writes no non-protocol data to stdout.
+message at 4 MiB (independently of pipe chunk boundaries), bounds retained child
+stderr to 64 KiB, honors stdout backpressure, and writes no non-protocol data to stdout.
+
+For `searchbridge_fetch`, fixture calls may omit `max_calls`; live calls must
+supply an integer from 1 to 1,000. Optional `property`, `start_date`, `end_date`,
+and `url` fields map to their CLI options and support the stable live providers.
+The bridge passes a 25,000 estimated-token ceiling for fetch/query calls and
+rejects unknown arguments instead of silently dropping them. Paid-provider
+opt-ins and endpoint overrides remain outside this tool surface.
 
 An MCP or agent host maps the tool inputs to the matching SearchBridge CLI command and returns JSON unchanged. Limit agent reads to 100 rows and 25,000 output tokens unless a workflow explicitly raises them. Preserve `provider`, `source`, `query.fingerprint`, `routing`, and `budgets` when handing results to Dispatch, WebOps, or another workflow.
 

@@ -50,6 +50,9 @@ Encrypted replay integrity covers this lineage metadata. JSONL rows repeat the
 small provenance object so independently streamed rows remain attributable.
 
 `--format jsonl` emits one `searchbridge.row/v1` object per normalized row.
+Evidence-query JSONL retains its rows and provenance; provider/capability fields
+are included only when the source envelope has them. File output is published
+by atomic replacement without first deleting the previous destination.
 For live paginated GSC and GA4 calls, rows are normalized page-by-page into an
 atomic output artifact; the returned in-process envelope does not retain the
 full row set after the file is published. `evidence-query` emits bounded joined
