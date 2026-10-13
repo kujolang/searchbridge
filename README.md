@@ -21,7 +21,8 @@ It also restores offline replay and improves document-validation speed.
 **Recollect cached evidence after upgrading.** Request hashes now use a new
 namespace; old caches cannot satisfy replay requests. Cache record formats and
 keys remain unchanged. Submissions never use the replay cache. See the
-[upgrade notes](docs/operations.md) and [changelog](CHANGELOG.md).
+[upgrade notes](docs/operations.md), [release notes](docs/release-notes-1.0.1.md),
+and [changelog](CHANGELOG.md).
 
 ## Quick start
 
