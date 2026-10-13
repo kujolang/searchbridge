@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { lstatSync, realpathSync } from 'node:fs';
@@ -34,27 +34,37 @@ function containedEvidencePath(inputPath) {
   if (evidenceRoot === null) throw new Error('searchbridge_query requires SEARCHBRIDGE_MCP_EVIDENCE_ROOT');
   const requested = resolve(evidenceRoot, inputPath);
   const lexical = relative(evidenceRoot, requested);
-  if (lexical.startsWith('..') || isAbsolute(lexical)) throw new Error('evidence_path escapes SEARCHBRIDGE_MCP_EVIDENCE_ROOT');
+  if ((lexical === '..' || lexical.startsWith(`..${sep}`)) || isAbsolute(lexical)) throw new Error('evidence_path escapes SEARCHBRIDGE_MCP_EVIDENCE_ROOT');
   const requestedStat = lstatSync(requested);
   if (requestedStat.isSymbolicLink()) throw new Error('evidence_path must not be a symlink');
   const canonical = realpathSync(requested);
   const canonicalRelative = relative(evidenceRoot, canonical);
-  if (canonicalRelative.startsWith('..') || isAbsolute(canonicalRelative) || !lstatSync(canonical).isFile()) throw new Error('evidence_path must be a contained regular file');
+  if ((canonicalRelative === '..' || canonicalRelative.startsWith(`..${sep}`)) || isAbsolute(canonicalRelative) || !lstatSync(canonical).isFile()) throw new Error('evidence_path must be a contained regular file');
   return canonical;
 }
 
 function argumentsFor(name, input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('arguments must be an object');
+  const schema = tools.get(name)?.input_schema;
+  if (!schema || Object.keys(input).some((key) => !Object.hasOwn(schema.properties || {}, key))) throw new Error('unknown tool argument');
   if (name === 'searchbridge_catalog') return ['agent-catalog'];
   if (name === 'searchbridge_fetch') {
     if (typeof input.capability !== 'string' || typeof input.provider !== 'string') throw new Error('capability and provider are required strings');
     const args = ['fetch', '--capability', input.capability, '--provider', input.provider, '--max-total-rows', String(boundedInteger(input.max_total_rows, 100))];
+    if (input.fixture !== undefined && typeof input.fixture !== 'boolean') throw new Error('fixture must be a boolean');
     if (input.fixture === true) args.push('--fixture', '--offline');
+    if (input.max_calls !== undefined || input.fixture !== true) args.push('--max-calls', String(boundedCalls(input.max_calls)));
+    args.push('--max-output-tokens', '25000');
+    for (const field of ['property', 'start_date', 'end_date', 'url']) {
+      if (input[field] === undefined) continue;
+      if (typeof input[field] !== 'string' || input[field].length === 0 || input[field].length > 8192 || /[\x00-\x1f\x7f]/.test(input[field])) throw new Error(`${field} must be a bounded string without control characters`);
+      args.push(`--${field.replaceAll('_', '-')}=${input[field]}`);
+    }
     return args;
   }
 	if (name === 'searchbridge_query') {
 	  if (typeof input.evidence_path !== 'string' || input.evidence_path.length === 0) throw new Error('evidence_path is required');
-	  const args = ['evidence-query', '--evidence-path', containedEvidencePath(input.evidence_path), '--max-total-rows', String(boundedInteger(input.max_total_rows, 100))];
+	  const args = ['evidence-query', '--evidence-path', containedEvidencePath(input.evidence_path), '--max-total-rows', String(boundedInteger(input.max_total_rows, 100)), '--max-output-tokens', '25000'];
     if (input.filter_field !== undefined || input.filter_equals !== undefined) {
       if (typeof input.filter_field !== 'string' || typeof input.filter_equals !== 'string') throw new Error('filter_field and filter_equals must be supplied together');
       args.push('--filter-field', input.filter_field, '--filter-equals', input.filter_equals);
@@ -73,9 +83,9 @@ function argumentsFor(name, input) {
 function run(args) {
   return new Promise((accept, reject) => {
     const child = spawn(executable, args, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
-    const chunks = []; const errors = []; let bytes = 0;
+    const chunks = []; const errors = []; let bytes = 0; let errorBytes = 0;
     child.stdout.on('data', (chunk) => { bytes += chunk.length; if (bytes <= 2_000_000) chunks.push(chunk); else child.kill(); });
-    child.stderr.on('data', (chunk) => { if (errors.reduce((sum, item) => sum + item.length, 0) < 65_536) errors.push(chunk); });
+    child.stderr.on('data', (chunk) => { const remaining = 65_536 - errorBytes; if (remaining > 0) { const kept = chunk.subarray(0, remaining); errors.push(kept); errorBytes += kept.length; } });
     child.on('error', reject);
     child.on('close', (code) => {
       const stderr = Buffer.concat(errors).toString('utf8').trim().slice(0, 65_536);
@@ -111,19 +121,34 @@ async function handle(request) {
   return { ...response, error: error(-32601, 'Method not found') };
 }
 
-process.stdin.setEncoding('utf8');
-let buffered = '';
-for await (const chunk of process.stdin) {
-  buffered += chunk;
-  if (Buffer.byteLength(buffered, 'utf8') > maxMessageBytes) {
-    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: error(-32700, 'Message exceeds 4 MiB') })}\n`);
-    process.exitCode = 1; break;
-  }
-  let newline;
-  while ((newline = buffered.indexOf('\n')) >= 0) {
-    const line = buffered.slice(0, newline); buffered = buffered.slice(newline + 1); if (!line.trim()) continue;
-    let response; try { response = await handle(JSON.parse(line)); } catch { response = { jsonrpc: '2.0', id: null, error: error(-32700, 'Parse error') }; }
-    if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
+async function writeResponse(response) {
+  if (response && !process.stdout.write(`${JSON.stringify(response)}\n`)) {
+    await new Promise((accept) => process.stdout.once('drain', accept));
   }
 }
-if (buffered.trim() && process.exitCode !== 1) process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: error(-32700, 'Incomplete JSON-RPC message') })}\n`);
+
+process.stdin.setEncoding('utf8');
+let buffered = '';
+let bufferedBytes = 0;
+input: for await (const chunk of process.stdin) {
+  let start = 0;
+  while (start < chunk.length) {
+    const newline = chunk.indexOf('\n', start);
+    const piece = chunk.slice(start, newline < 0 ? chunk.length : newline);
+    bufferedBytes += Buffer.byteLength(piece, 'utf8');
+    if (bufferedBytes > maxMessageBytes) {
+      await writeResponse({ jsonrpc: '2.0', id: null, error: error(-32700, 'Message exceeds 4 MiB') });
+      process.exitCode = 1; break input;
+    }
+    buffered += piece;
+    if (newline < 0) break;
+    const line = buffered; buffered = ''; bufferedBytes = 0; start = newline + 1;
+    if (!line.trim()) continue;
+    let request;
+    try { request = JSON.parse(line); } catch {
+      await writeResponse({ jsonrpc: '2.0', id: null, error: error(-32700, 'Parse error') }); continue;
+    }
+    await writeResponse(await handle(request));
+  }
+}
+if (buffered.trim() && process.exitCode !== 1) await writeResponse({ jsonrpc: '2.0', id: null, error: error(-32700, 'Incomplete JSON-RPC message') });
