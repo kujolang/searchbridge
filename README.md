@@ -268,6 +268,10 @@ bash scripts/validate.sh
 "${KUJO_BIN:-../kujo/target/release/kujo}" run examples/ci_quality_gate.kujo
 ```
 
+The contract test runner prints failures and a compact count by default. To
+inspect every successful assertion, run
+`"${KUJO_BIN:-../kujo/target/release/kujo}" run tests/searchbridge_tests.kujo -- --verbose`.
+
 The validation gate runs the native contract assertions, validates emitted
 documents and capability rows, proves every 0.2.x golden envelope remains
 readable, checks provider snapshots, executes CLI and benchmark smokes, rejects

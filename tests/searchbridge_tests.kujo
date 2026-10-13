@@ -10,11 +10,12 @@ from src.registry import adapters, validate_registry, providers_for, resolve, ag
 from src.protocols import cost_preflight, cursor_sequence, async_task_sequence, bounded_csv_parse, graphql_result, validate_exact_endpoint, stream_synthetic_jsonl
 from src.task_state import write_task_state, read_task_state, clear_task_state
 
+verbose := len(args()) == 1 && args()[0] == "--verbose"
 mut passed := 0
 mut failed := 0
 
 func check(condition, label) {
-	if condition { passed = passed + 1; print("ok - " + label); return }
+	if condition { passed = passed + 1; if verbose { print("ok - " + label) }; return }
 	failed = failed + 1; eprint("not ok - " + label)
 }
 
