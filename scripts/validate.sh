@@ -8,9 +8,12 @@ if [[ ! -x "$KUJO_RUNTIME" ]]; then printf 'SearchBridge: Kujo runtime not found
 cd "$ROOT"
 "$KUJO_RUNTIME" check searchbridge.kujo
 "$KUJO_RUNTIME" run tests/searchbridge_tests.kujo
-while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$document"; done < <(find schemas fixtures/providers fixtures/golden examples/rows integrations adapters -type f -name '*.json' -print | sort)
-while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_document.kujo -- "$document"; done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
-"$KUJO_RUNTIME" run scripts/validate_document.kujo -- kujo.toml
+"$KUJO_RUNTIME" run tests/hardening_tests.kujo
+"$KUJO_RUNTIME" run tests/legacy_budget_tests.kujo
+documents=(kujo.toml)
+while IFS= read -r document; do documents+=("$document"); done < <(find schemas fixtures/providers fixtures/golden examples/rows integrations adapters -type f -name '*.json' -print | sort)
+while IFS= read -r document; do documents+=("$document"); done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
+"$KUJO_RUNTIME" run scripts/validate_document.kujo -- "${documents[@]}"
 "$KUJO_RUNTIME" run scripts/compatibility_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_contract_gate.kujo
 "$KUJO_RUNTIME" run scripts/provider_snapshot_gate.kujo
@@ -27,6 +30,8 @@ bash scripts/sdk_runtime_gate.sh >/dev/null
 "$KUJO_RUNTIME" run scripts/security_property_gate.kujo
 "$KUJO_RUNTIME" run scripts/governance_gate.kujo
 node scripts/mcp_gate.mjs
+node scripts/mcp_hardening_gate.mjs
+node scripts/release_archive_gate.mjs
 bash scripts/examples_gate.sh
 version_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge version)"
 fixture_output="$(KUJO_BIN="$KUJO_RUNTIME" ./searchbridge search-performance --fixture --offline --deterministic)"
