@@ -28,7 +28,7 @@ func logical_pages(row_count, page_size) { if row_count == 0 { return 1 }; retur
 
 func page_stream(options) {
 	if options["format"] != "jsonl" || options["out"] == "" || options["fixture"] { return {"enabled": false, "path": "", "bytes": 0, "rows": 0} }
-	path := options["out"] + ".partial-" + to_string(current_timestamp()); write_file(path, "", true)
+	path := options["out"] + ".partial-" + to_string(current_timestamp()) + "-" + to_string(random_int(0, 2147483647)); write_file(path, "", false)
 	return {"enabled": true, "path": path, "bytes": 0, "rows": 0}
 }
 
@@ -46,7 +46,7 @@ func stream_page(stream, envelope_value, options) {
 
 func finish_page_stream(stream, output_path) {
 	if !stream["enabled"] { return success(false) }
-	try { if file_exists(output_path) { delete_file(output_path) }; rename_file(stream["path"], output_path); return success(true) }
+	try { rename_file(stream["path"], output_path); return success(true) }
 	except stream_error { if file_exists(stream["path"]) { delete_file(stream["path"]) }; return failure("could not publish streamed JSONL output") }
 }
 
@@ -104,14 +104,14 @@ export func command_search_performance(options) {
 	dimensions := csv_values(options["dimensions"])
 	if len(dimensions) == 0 { return failure("--dimensions must contain at least one value") }
 	if provider == "google-search-console" {
-		mut stream := page_stream(options)
+		mut stream := {"enabled": false, "path": "", "bytes": 0, "rows": 0}
 		if property_name == "" { property_name = "sc-domain:example.com" }
 		mut raw_result := null; mut pages := 1
 		if options["fixture"] { raw_result = fixture("google-search-console") }
 		else {
 			if options["property"] == "" || options["start_date"] == "" || options["end_date"] == "" { return failure("live GSC requires --property, --start-date, and --end-date") }
 			if !valid_iso_date(options["start_date"]) || !valid_iso_date(options["end_date"]) || options["start_date"] > options["end_date"] { return failure("GSC dates must use valid YYYY-MM-DD values and start-date must not exceed end-date") }
-			auth := bearer("SEARCHBRIDGE_GSC_TOKEN"); if !auth["ok"] { return auth }
+			auth := bearer("SEARCHBRIDGE_GSC_TOKEN"); if !auth["ok"] { return auth }; stream = page_stream(options)
 			endpoint := "https://www.googleapis.com/webmasters/v3/sites/" + query_encode(options["property"]) + "/searchAnalytics/query"
 			mut all_rows := []; mut page := 0; mut emitted_rows := 0; mut last_result := null; mut total_telemetry := {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "disabled", "provider_cost": {}}; started := current_timestamp()
 			while page < options["max_pages"] && emitted_rows < options["max_total_rows"] && total_telemetry["attempts"] < options["max_calls"] && current_timestamp() - started <= options["max_elapsed_ms"] {
@@ -123,7 +123,7 @@ export func command_search_performance(options) {
 				else { for item in page_rows { all_rows = push(all_rows, item) } }; page = page + 1
 				if len(page_rows) < page_limit { break }
 			}
-			pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry}); if stream["enabled"] { published := finish_page_stream(stream, options["out"]); if !published["ok"] { return published } }
+			if type(last_result) == "null" { if stream["enabled"] { delete_file(stream["path"]) }; return failure("provider execution budget exhausted before the first page") }; pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry}); if stream["enabled"] { published := finish_page_stream(stream, options["out"]); if !published["ok"] { return published } }
 		}
 		if !raw_result["ok"] { return raw_result }
 		normalized := normalize_gsc(provider_body(raw_result), dimensions, property_name, mode(options), options["max_total_rows"], options["deterministic"])
@@ -151,7 +151,7 @@ export func command_search_performance(options) {
 }
 
 export func command_analytics(options) {
-	mut stream := page_stream(options)
+	mut stream := {"enabled": false, "path": "", "bytes": 0, "rows": 0}
 	mut property_name := options["property"]
 	if property_name == "" { property_name = "properties/123456" }
 	if !starts_with(property_name, "properties/") { property_name = "properties/" + property_name }
@@ -161,7 +161,7 @@ export func command_analytics(options) {
 	if options["fixture"] { raw_result = fixture("google-analytics-4") }
 	else {
 		if options["property"] == "" { return failure("live GA4 requires --property") }
-		auth := bearer("SEARCHBRIDGE_GA4_TOKEN"); if !auth["ok"] { return auth }
+		auth := bearer("SEARCHBRIDGE_GA4_TOKEN"); if !auth["ok"] { return auth }; stream = page_stream(options)
 		mut dim_body := []; for name in dimensions { dim_body = push(dim_body, {"name": name}) }
 		mut metric_body := []; for name in metrics { metric_body = push(metric_body, {"name": name}) }
 		mut start_date := options["start_date"]; if start_date == "" { start_date = "28daysAgo" }
@@ -177,7 +177,7 @@ export func command_analytics(options) {
 			else { for item in page_rows { all_rows = push(all_rows, item) } }; page = page + 1
 			if len(page_rows) < page_limit { break }
 		}
-		pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry}); if stream["enabled"] { published := finish_page_stream(stream, options["out"]); if !published["ok"] { return published } }
+		if type(last_result) == "null" { if stream["enabled"] { delete_file(stream["path"]) }; return failure("provider execution budget exhausted before the first page") }; pages = page; mut aggregate := provider_body(last_result); aggregate["rows"] := all_rows; raw_result = success({"body": aggregate, "telemetry": total_telemetry}); if stream["enabled"] { published := finish_page_stream(stream, options["out"]); if !published["ok"] { return published } }
 	}
 	if !raw_result["ok"] { return raw_result }
 	normalized := normalize_analytics(provider_body(raw_result), dimensions, metrics, property_name, mode(options), options["max_total_rows"], options["deterministic"])

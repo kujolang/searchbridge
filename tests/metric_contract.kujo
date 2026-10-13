@@ -1,0 +1,10 @@
+# Kujo's JSON Schema subset does not implement maxProperties. Enforce that
+# canonical schema constraint explicitly before validating the remaining fields.
+export func metric_observation_valid(value) {
+	schema := parse_json(read_file("schemas/metric-observation.schema.json"))
+	properties := schema["properties"]; extra_schema := properties["source_extra"]
+	if type(value) == "dict" && has_key(value, "source_extra") && type(value["source_extra"]) == "dict" && len(keys(value["source_extra"])) > extra_schema["maxProperties"] { return false }
+	mut supported := {}; for key in keys(extra_schema) { if key != "maxProperties" { supported[key] := extra_schema[key] } }
+	properties["source_extra"] = supported; schema["properties"] = properties
+	return json_schema_validate(value, schema)["valid"]
+}

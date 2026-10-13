@@ -1,3 +1,4 @@
+from tests.metric_contract import metric_observation_valid
 from src.cli import prepare_options, dispatch, render_output, batch_worker_pool_probe, result_exit_code
 from src.core import clean_error, normalize_submission_url, validate_submission_urls, utf8_size, normalize_gsc, query_encode, query_fingerprint, value_within_bounds, dict_get
 from src.transport import should_retry_status, retry_contract_probe, call_budget_contract_probe, circuit_contract_probe, request_json, gsc_page_contract_transport, ga_page_contract_transport, dataforseo_task_contract_transport, plausible_page_contract_transport, csv_contract_transport, crux_empty_contract_transport
@@ -73,7 +74,7 @@ check(utf8_size(to_json(agent_tools)) <= 4096 && len(agent_tools["tools"]) == 4 
 for name in ["rank-tracking", "serp-results", "domain-visibility", "traffic-estimate", "edge-analytics"] {
 	row := parse_json(read_file("examples/rows/" + name + ".json")); schema := runtime_schema("schemas/rows/" + name + ".schema.json")
 	check(json_schema_validate(row, schema)["valid"], name + " canonical example satisfies its row schema")
-	if has_key(row, "metrics") { for observation in row["metrics"] { check(json_schema_validate(observation, runtime_schema("schemas/metric-observation.schema.json"))["valid"], name + " metric observation satisfies shared schema") } }
+	if has_key(row, "metrics") { for observation in row["metrics"] { check(metric_observation_valid(observation), name + " metric observation satisfies shared schema") } }
 }
 visibility_metric := parse_json(read_file("examples/rows/domain-visibility.json"))["metrics"][0]
 traffic_metric := parse_json(read_file("examples/rows/traffic-estimate.json"))["metrics"][0]

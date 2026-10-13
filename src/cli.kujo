@@ -62,7 +62,8 @@ export func parse_options(tokens) {
 	}
 	profile := load_profile(options["config"], options["profile"]); if !profile["ok"] { return profile }
 	for key in keys(profile["value"]) { if !includes(seen, key) { options[key] = profile["value"][key] } }
-	for key in keys(environment_overrides()) { if !includes(seen, key) { options[key] = environment_overrides()[key] } }
+	overrides := environment_overrides()
+	for key in keys(overrides) { if !includes(seen, key) { options[key] = overrides[key] } }
 	try {
 		options["timeout"] = to_float(options["timeout"])
 		options["retries"] = to_int(options["retries"])
@@ -109,7 +110,7 @@ func apply_command_defaults(command, options) {
 }
 
 func validate_command_options(command, options) {
-	if !includes(["doctor", "capabilities", "providers", "version", "evidence-query"], command) && options["offline"] && !options["fixture"] { return failure("offline mode requires --fixture for provider commands") }
+	if !includes(["doctor", "capabilities", "providers", "agent-catalog", "version", "evidence-query", "cache-maintenance", "adapter-conformance"], command) && options["offline"] && !options["fixture"] && !options["replay"] { return failure("offline mode requires --fixture or --replay for provider commands") }
 	if command == "search-performance" && !includes(["google-search-console", "bing-webmaster"], options["provider"]) { return failure("--provider must be google-search-console or bing-webmaster") }
 	if command == "backlinks" && !includes(["ahrefs", "bing-webmaster"], options["provider"]) { return failure("--provider must be ahrefs or bing-webmaster") }
 	if command == "submit" && !includes(["indexnow", "bing-webmaster"], options["provider"]) { return failure("--provider must be indexnow or bing-webmaster") }
@@ -295,28 +296,34 @@ export func batch_worker_pool_probe() {
 	return {"ordered": ordered, "elapsed_ms": elapsed_ms, "serial_ms": 240, "overlapped": elapsed_ms < 200}
 }
 
+func jsonl_row(value, row, provenance) {
+	mut record := {"schema": "searchbridge.row/v1", "provenance": provenance, "row": row}
+	for field in ["capability", "provider"] { if has_key(value, field) { record[field] := value[field] } }
+	return to_json(record) + "\n"
+}
+
 export func render_output(value, options) {
 	if type(value) == "dict" && has_key(value, "_already_streamed") && value["_already_streamed"] { return {"ok": true, "value": "", "streamed": true} }
 	if options["format"] == "jsonl" && type(value) == "dict" && has_key(value, "rows") {
 		provenance := dict_get(value, "provenance", {})
 		mut total := 0
 		for row in value["rows"] {
-			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "provenance": provenance, "row": row}) + "\n"
+			line := jsonl_row(value, row, provenance)
 			total = total + utf8_size(line); if total > options["max_output_bytes"] || total > options["max_output_tokens"] * 4 { return failure("output budget exceeded (" + to_string(total) + " bytes)") }
 		}
-		mut output_path := options["out"]; if output_path != "" { output_path = options["out"] + ".searchbridge-tmp-" + to_string(current_timestamp()); write_file(output_path, "", true) }
+		mut output_path := options["out"]; if output_path != "" { output_path = options["out"] + ".searchbridge-tmp-" + to_string(current_timestamp()) + "-" + to_string(random_int(0, 2147483647)); write_file(output_path, "", false) }
 		for row in value["rows"] {
-			line := to_json({"schema": "searchbridge.row/v1", "capability": value["capability"], "provider": value["provider"], "provenance": provenance, "row": row}) + "\n"
+			line := jsonl_row(value, row, provenance)
 			if options["out"] != "" { append_file(output_path, line) } else { print(trim_end(line)) }
 		}
-		if options["out"] != "" { try { if file_exists(options["out"]) { delete_file(options["out"]) }; rename_file(output_path, options["out"]) } except publish_error { if file_exists(output_path) { delete_file(output_path) }; return failure("could not publish output atomically") } }
+		if options["out"] != "" { try { rename_file(output_path, options["out"]) } except publish_error { if file_exists(output_path) { delete_file(output_path) }; return failure("could not publish output atomically") } }
 		return {"ok": true, "value": "", "streamed": true}
 	}
 	text := to_json(value) + "\n"
 	size := utf8_size(text)
 	if size > options["max_output_bytes"] || size > options["max_output_tokens"] * 4 { return failure("output budget exceeded (" + to_string(size) + " bytes)") }
 	if options["out"] != "" {
-		try { write_file(options["out"], text, true) }
+		try { write_file_atomic(options["out"], text, true) }
 		except write_error { return failure("could not write output: " + to_string(write_error)) }
 	}
 	return {"ok": true, "value": text}

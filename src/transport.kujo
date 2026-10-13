@@ -22,8 +22,8 @@ func retry_delay(response, attempt, policy) {
 	while step < attempt { delay_ms = delay_ms * 2; step = step + 1 }
 	headers := dict_get(response, "_headers", dict_get(response, "headers", {}))
 	retry_after := header_value(headers, "retry-after")
-	if regex_match(retry_after, "^[0-9]+$") { delay_ms = to_int(retry_after) * 1000 }
 	cap := dict_get(policy, "retry_delay_cap_ms", 5000)
+	if regex_match(retry_after, "^[0-9]+$") { if len(retry_after) > 6 { delay_ms = cap } else { delay_ms = to_int(retry_after) * 1000 } }
 	if delay_ms > cap { delay_ms = cap }
 	jitter_cap := dict_get(policy, "retry_jitter_ms", 100)
 	if jitter_cap > 0 && !dict_get(policy, "deterministic", false) { delay_ms = delay_ms + random_int(0, jitter_cap) }
@@ -42,7 +42,9 @@ export func request_json(url, method, body, headers, policy, transport) {
 	if dict_get(policy, "offline", false) && !dict_get(policy, "replay", false) { return failure("offline mode blocks live provider requests") }
 	bound_request := {"body": body, "provider": dict_get(policy, "provider", ""), "adapter_version": dict_get(policy, "adapter_version", ""), "capability": dict_get(policy, "current_capability", ""), "profile": dict_get(policy, "profile", "")}
 	request_hash := credential_independent_request_hash(method, url, bound_request)
-	cache_dir := dict_get(policy, "cache_dir", "")
+	mut cache_dir := dict_get(policy, "cache_dir", "")
+	if dict_get(policy, "replay", false) && cache_dir == "" { return failure("replay requires a cache directory") }
+	if dict_get(policy, "current_capability", "") == "index.submission" { if dict_get(policy, "replay", false) { return failure("submission receipts cannot be replayed") }; cache_dir = "" }
 	capability := dict_get(policy, "current_capability", "")
 	mut allowed_replays := dict_get(policy, "replay_capabilities", [])
 	if type(allowed_replays) == "string" { allowed_replays = split(allowed_replays, ",") }

@@ -1,0 +1,63 @@
+from src.protocols import bounded_csv_parse
+from src.transport import request_json
+from tests.metric_contract import metric_observation_valid
+from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, maintain_cache
+from src.cli import prepare_options, dispatch, render_output
+
+mut failures := 0
+func check(condition, name) { if !condition { failures = failures + 1; eprint("not ok - " + name) } }
+url := "https://example.invalid/data"
+check(credential_independent_request_hash("POST", url, {"keyword": "alpha"}) != credential_independent_request_hash("POST", url, {"keyword": "beta"}), "body keyword changes cache identity")
+check(credential_independent_request_hash("GET", url + "?keywords=alpha", null) != credential_independent_request_hash("GET", url + "?keywords=beta", null), "query keywords change cache identity")
+check(credential_independent_request_hash("POST", url, {"nested": [{"access_token": "one\"suffix-a"}]}) == credential_independent_request_hash("POST", url, {"nested": [{"access_token": "two\"suffix-b"}]}), "escaped nested credentials do not change cache identity")
+check(credential_independent_request_hash("POST", url, {"key": ""}) == credential_independent_request_hash("POST", url, {"key": "synthetic"}), "empty credentials do not change cache identity")
+root := "/tmp/searchbridge-hardening-" + to_string(current_timestamp()); create_dir(root)
+hash := sha256("record"); directory := root + "/cache"; create_dir(directory)
+check(!write_cached_response(directory, "../escape", 200, {}, 1000, "time")["ok"] && !file_exists(root + "/escape.json"), "cache hash cannot escape directory")
+check(!write_protected_cached_response(directory, hash, 200, {}, 1000, "time", {"require_encryption": true})["ok"], "required encryption cannot write plaintext")
+write_cached_response(directory, hash, 200, {}, 2000, "time")
+check(!read_cached_response(directory, hash, 60, 1000)["ok"], "future cache timestamp cannot replay")
+write_cached_response(directory, hash, 200, {}, 1000, "time")
+maintained := maintain_cache(directory, "cleanup", 60, "", "", 1001, "time")
+check(maintained["ok"] && maintained["value"]["files"] == 1, "maintenance reports input file count")
+write_file(directory + "/poison.json", to_json({"schema": "searchbridge.cache/v1", "request_hash": "../escape", "stored_at_ms": 1000, "body": {}}), true)
+env_set("SEARCHBRIDGE_HARDENING_KEY", "synthetic-key")
+migrated := maintain_cache(directory, "migrate", 60, "", "SEARCHBRIDGE_HARDENING_KEY", 1001, "time")
+check(migrated["ok"] && migrated["value"]["corrupt"] == 1 && migrated["value"]["files"] == 2 && !file_exists(root + "/escape.json"), "migration rejects poisoned identity and counts inputs once")
+env_set("SEARCHBRIDGE_HARDENING_KEY", "")
+write_file(directory + "/" + hash + ".json", repeat(" ", 8388608), true); append_file(directory + "/" + hash + ".json", repeat(" ", 8388608)); append_file(directory + "/" + hash + ".json", " ")
+check(!read_cached_response(directory, hash, 60, 1001)["ok"], "oversized cache record fails before parsing")
+check(!write_cached_response(directory, hash, 200, {"rows": [repeat("x", 1048577)]}, 1000, "time")["ok"], "cache cannot persist an over-budget response structure")
+for name in list_dir(directory) { delete_file(directory + "/" + name) }; os_rmdir(directory)
+if file_exists(root + "/escape.json") { delete_file(root + "/escape.json") }
+os_rmdir(root)
+metric := parse_json(read_file("examples/rows/domain-visibility.json"))["metrics"][0]
+check(metric_observation_valid(metric), "canonical metric ID validates")
+mut extras := {}; mut i := 0; while i < 16 { extras[to_string(i)] := i; i = i + 1 }; metric["source_extra"] := extras
+check(metric_observation_valid(metric), "16 metric extensions are allowed")
+extras["overflow"] := true; metric["source_extra"] = extras
+check(!metric_observation_valid(metric), "17 metric extensions are rejected")
+metric["source_extra"] = "invalid"; check(!metric_observation_valid(metric), "metric extension type is enforced")
+metric["source_extra"] = {}; metric["metric_id"] = "invalid"; check(!metric_observation_valid(metric), "metric ID requires a provider separator")
+check(prepare_options("analytics", ["--replay", "--offline", "--cache-dir", "/tmp/approved"])["ok"], "offline replay is accepted")
+check(prepare_options("agent-catalog", ["--offline"])["ok"], "offline catalog requires no fixture")
+never_called := func(_url, _options) { return Ok({"_status": 200, "_body": "{}"}) }
+check(!request_json(url, "GET", null, {}, {"replay": true, "offline": true}, never_called)["ok"], "replay without cache cannot reach transport")
+check(!request_json(url, "POST", {}, {}, {"current_capability": "index.submission", "replay": true, "cache_dir": root}, never_called)["ok"], "submission cannot replay an old receipt")
+output_dir := root + "-output"; create_dir(output_dir); output := output_dir + "/result.jsonl"
+query_options := prepare_options("evidence-query", ["--format", "jsonl", "--out", output])["value"]
+query := {"schema": "searchbridge.evidence-query/v1", "rows": [{"id": 1}], "provenance": {}}
+rendered := render_output(query, query_options)
+check(rendered["ok"] && parse_json(trim(read_file(output)))["row"]["id"] == 1, "evidence-query JSONL does not require provider envelope fields")
+write_file(output, "previous", true); query_options["max_output_bytes"] = 1
+check(!render_output(query, query_options)["ok"] && read_file(output) == "previous", "failed output budget preserves previous file")
+missing := prepare_options("analytics", ["--format", "jsonl", "--out", output, "--max-calls", "1"])["value"]
+check(!dispatch("analytics", missing)["ok"] && len(list_dir(output_dir)) == 1, "validation failure leaves no streaming temporary artifact")
+for name in list_dir(output_dir) { delete_file(output_dir + "/" + name) }; os_rmdir(output_dir)
+check(!bounded_csv_parse("name,value\na,ééé\n", 10, 4, 4)["ok"], "unquoted CSV cells obey UTF-8 byte limits")
+quoted_csv := bounded_csv_parse("\"last,first\",value\nname,42\n", 10, 2, 32)
+check(quoted_csv["ok"] && quoted_csv["value"][0]["last,first"] == "name", "quoted comma headers count logical columns")
+quoted_semicolon := bounded_csv_parse("\"last,first\";value\nname;42\n", 10, 2, 32)
+check(quoted_semicolon["ok"] && quoted_semicolon["value"][0]["last,first"] == "name", "quoted punctuation does not change the CSV delimiter")
+if failures > 0 { eprint(to_string(failures) + " hardening regressions failed"); exit(1) }
+print("Cache, replay, output, metric, CSV, and retry hardening regressions passed.")
