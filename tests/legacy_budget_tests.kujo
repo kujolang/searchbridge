@@ -1,0 +1,31 @@
+from src.cli import prepare_options
+from src.adapters import run_signed_adapter
+from src.transport import dataforseo_task_contract_transport
+
+func check(condition, label) { if !condition { eprint("not ok - " + label); exit(1) } }
+keypair := rsa_generate_keypair(2048)
+env_set("SEARCHBRIDGE_LEGACY_TEST_KEY", keypair["public"])
+manifest := "/tmp/searchbridge-legacy-budget-" + to_string(current_timestamp()) + ".json"
+signature := manifest + ".sig"
+cases := [
+	["metered", [], false, 0, "paid legacy requests require consent and budgets"],
+	["metered", ["--max-calls", "1", "--max-provider-units", "1"], false, 0, "paid legacy requests require allow-paid"],
+	["metered", ["--allow-paid", "--max-provider-units", "1"], false, 0, "paid legacy requests require call budget"],
+	["metered", ["--allow-paid", "--max-calls", "1"], false, 0, "paid legacy requests require unit budget"],
+	["metered", ["--allow-paid", "--max-calls", "1", "--max-provider-units", "1"], true, 1, "explicit paid legacy request remains supported"],
+	["free", [], false, 0, "free legacy live requests still need call budget"],
+	["free", ["--max-calls", "1"], true, 1, "budgeted free legacy live request remains supported"],
+	["metered", ["--fixture", "--offline"], true, 0, "legacy fixtures do not require paid consent"]
+]
+for item in cases {
+	cost_class := item[0]; flags := item[1]; expected_ok := item[2]; expected_rows := item[3]; label := item[4]
+	adapter := {"name": "legacy-budget", "capabilities": ["example.read"], "write_capabilities": [], "cost_class": cost_class, "request_contract": {}, "response_contract": {}, "discovery": {"kind": "signed-manifest"}, "request": {"method": "GET", "endpoint": "https://api.example.com/evidence"}, "normalization": {"rows_field": "tasks"}, "write_boundary": {"allowed": false}, "fixture_response": {"rows": []}}
+	text := to_json(adapter); write_file(manifest, text, true); write_file(signature, rsa_sign(text, keypair["private"]), true)
+	tokens := concat(["--capability", "example.read", "--adapter-manifest", manifest, "--adapter-signature", signature, "--adapter-key-env", "SEARCHBRIDGE_LEGACY_TEST_KEY", "--adapter-allow-capabilities", "example.read", "--adapter-allow-endpoints", "https://api.example.com/evidence", "--deterministic"], flags)
+	prepared := prepare_options("adapter-run", tokens); check(prepared["ok"], label + " options")
+	options := prepared["value"]; options["transport"] = dataforseo_task_contract_transport
+	result := run_signed_adapter(options); check(result["ok"] == expected_ok, label); if expected_ok { check(len(result["value"]["rows"]) == expected_rows, label + " result") } else { check(contains(result["error"], "budget") || contains(result["error"], "--allow-paid"), label + " policy error") }
+}
+delete_file(manifest); delete_file(signature); env_set("SEARCHBRIDGE_LEGACY_TEST_KEY", "")
+
+print("Legacy adapter budget gate passed: 8 cases.")
