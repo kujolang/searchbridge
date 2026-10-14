@@ -77,7 +77,7 @@ jobs:
       - name: Remove any generated Google credential files
         if: always()
         run: find . -name 'gha-creds-*.json' -type f -delete
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: sanitized-live-contract-evidence

@@ -78,7 +78,7 @@ jobs:
           second_hash="$(bash scripts/sha256.sh "$second" | awk '{print $1}')"
           test "$first_hash" = "$second_hash"
           (cd "$(dirname "$second")" && bash "$PWD/../../scripts/sha256.sh" --check "$(basename "$second").sha256")
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-runtime-${{ matrix.platform }}
           path: searchbridge/dist/runtime/*
@@ -127,7 +127,7 @@ jobs:
           "$KUJO_BIN" run scripts/release_artifacts.kujo
           git archive --format=tar.gz --prefix="searchbridge-${RELEASE_REF#v}/" -o "dist/searchbridge-${RELEASE_REF#v}.tar.gz" "$release_sha"
           git archive --format=zip --prefix="searchbridge-${RELEASE_REF#v}/" -o "dist/searchbridge-${RELEASE_REF#v}.zip" "$release_sha"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-metadata-sdks
           path: dist
