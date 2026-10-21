@@ -15,7 +15,7 @@
     "check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^22.20.2",
+    "@types/node": "^22.20.5",
     "typescript": "^7.0.2"
   },
   "engines": {
