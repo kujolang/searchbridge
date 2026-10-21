@@ -1,6 +1,6 @@
 [package]
 name = "searchbridge"
-version = "1.0.1"
+version = "1.0.2"
 description = "Collect normalized search, analytics, performance, and indexing evidence with explicit provider budgets."
 license = "MIT"
 repository = "https://github.com/kujolang/searchbridge"

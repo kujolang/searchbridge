@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 — 2026-10-21
+
+- Require patched Node.js versions across TypeScript SDK, MCP, and release tooling.
+- Preserve provider tiers, approval requirements, bounded evidence, cache identities, and the v1 SDK contracts.
+
 ## 1.0.1 — 2026-10-13
 
 ### Distribution

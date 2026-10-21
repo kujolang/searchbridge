@@ -1,6 +1,6 @@
 # SearchBridge
 
-[![Version](https://img.shields.io/badge/version-1.0.1-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.0.2-black)](VERSION)
 [![CI](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/searchbridge/actions/workflows/validate.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
@@ -12,7 +12,11 @@ measurements with their sources; it does not interpret SEO performance.
 The application, adapters, normalizers, tests, and release tools are written in
 Kujo. Small POSIX and PowerShell launchers run it on each supported platform.
 
-## What's new in 1.0.1
+## What's new in 1.0.2
+
+This maintenance release requires patched Node.js for SDK, MCP, and release tooling. Provider tiers, live-call permissions, cache contracts, and SDK interfaces are unchanged.
+
+### Included 1.0.1 improvements
 
 This patch fixes cache-key collisions, enforces live-call budgets, bounds replay
 and SDK diagnostics, and verifies release archives before reading their contents.
@@ -28,11 +32,11 @@ and [changelog](CHANGELOG.md).
 
 Install a self-contained GitHub release bundle and verify its checksum. The
 release includes SDK archives; public npm and crates.io packages are not offered.
-Select the v1.0.1 bundle for the operating system and CPU in the
+Select the v1.0.2 bundle for the operating system and CPU in the
 [support matrix](docs/support-matrix.md):
 
 ```bash
-VERSION=1.0.1
+VERSION=1.0.2
 PLATFORM=linux-x64
 BASE="https://github.com/kujolang/searchbridge/releases/download/v${VERSION}"
 curl -fSLO "$BASE/searchbridge-${VERSION}-${PLATFORM}.tar.gz"
