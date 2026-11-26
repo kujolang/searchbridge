@@ -70,7 +70,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: trufflesecurity/trufflehog@e63326d6545de8f425d93ce24078c6e68d83f70e
+      - uses: trufflesecurity/trufflehog@4ef51f69ca6347aaa76a5e64a87eac9c0c909f71
         with:
           path: ./
           extra_args: --only-verified
