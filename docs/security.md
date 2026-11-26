@@ -8,11 +8,11 @@ SearchBridge is a provider gateway, not a credential broker or sandbox.
 - `submit` requires `--capability index.submission --act --yes` on every invocation, including fixture mode.
 - Submission URLs must use HTTP(S), contain no user-info or whitespace, share one syntactically valid host, and fit the 1,000-URL batch bound. Fragments are removed.
 - Custom submission endpoints are disabled to prevent credentials from being forwarded to an operator-supplied host.
-- Live calls have a 120-second maximum timeout, at most five retries, an 8 MiB provider-response bound, declared page/row bounds, and caller-configurable output byte/token bounds.
+- Live calls have a 120-second maximum timeout, a command-wide deadline, at most five retries, an 8 MiB provider-response ceiling, declared page/row bounds, and caller-configurable output byte/token bounds.
 - Retries apply only to connection failures, HTTP 429, and transient 5xx statuses. Numeric `Retry-After` is capped and jittered.
 - Retry telemetry excludes URLs, headers, bodies, credentials, and row values.
 - Config files reject secret-, token-, credential-, and key-shaped fields; credentials remain environment-only.
-- Replay hashes redact credential material. Operators may require authenticated AES-256-GCM records using an environment-provided key and may allowlist replayable capabilities. Expired records are deleted and tampered ciphertext fails closed.
+- Replay hashes redact credential material. Operators may require authenticated AES-256-GCM records using an environment-provided key and may allowlist replayable capabilities. Expired records are rejected on read. Explicit cache maintenance removes them. Tampered ciphertext fails closed.
 - External adapters are declarative read contracts loaded only from detached RSA-SHA256-signed canonical manifests. The manifest binds every package file digest. Every external capability, exact endpoint template, and credential environment variable requires an invocation allowlist; mutation access remains unavailable.
 - OpenTelemetry is explicit opt-in. OTLP trace and metric payloads contain bounded operational attributes only and exclude URLs, headers, tokens, bodies, and normalized rows. A committed redaction corpus exercises this boundary.
 - Batch cancellation is cooperative: new work and retries stop when the cancel file appears, while a currently executing provider request remains bounded by its timeout.

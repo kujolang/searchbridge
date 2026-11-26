@@ -1,8 +1,9 @@
 from src.protocols import bounded_csv_parse
-from src.transport import request_json
+from src.transport import request_json, retry_contract_probe, csv_contract_transport
 from tests.metric_contract import metric_observation_valid
 from src.cache import credential_independent_request_hash, write_cached_response, read_cached_response, write_protected_cached_response, maintain_cache
 from src.cli import prepare_options, dispatch, render_output
+from src.telemetry import export_otel
 
 mut failures := 0
 func check(condition, name) { if !condition { failures = failures + 1; eprint("not ok - " + name) } }
@@ -17,6 +18,7 @@ check(!write_cached_response(directory, "../escape", 200, {}, 1000, "time")["ok"
 check(!write_protected_cached_response(directory, hash, 200, {}, 1000, "time", {"require_encryption": true})["ok"], "required encryption cannot write plaintext")
 write_cached_response(directory, hash, 200, {}, 2000, "time")
 check(!read_cached_response(directory, hash, 60, 1000)["ok"], "future cache timestamp cannot replay")
+check(file_exists(directory + "/" + hash + ".json"), "read-only cache rejection preserves the record")
 write_cached_response(directory, hash, 200, {}, 1000, "time")
 maintained := maintain_cache(directory, "cleanup", 60, "", "", 1001, "time")
 check(maintained["ok"] && maintained["value"]["files"] == 1, "maintenance reports input file count")
@@ -44,6 +46,16 @@ check(prepare_options("agent-catalog", ["--offline"])["ok"], "offline catalog re
 never_called := func(_url, _options) { return Ok({"_status": 200, "_body": "{}"}) }
 check(!request_json(url, "GET", null, {}, {"replay": true, "offline": true}, never_called)["ok"], "replay without cache cannot reach transport")
 check(!request_json(url, "POST", {}, {}, {"current_capability": "index.submission", "replay": true, "cache_dir": root}, never_called)["ok"], "submission cannot replay an old receipt")
+check(!prepare_options("version", ["--offline", "--otel-endpoint", "https://example.invalid/traces"])["ok"], "offline mode rejects network telemetry during preflight")
+otel_options := {"otel_endpoint": "https://example.invalid/traces", "offline": true, "deterministic": true, "otel_service_name": "fixture", "timeout": 1}
+check(!export_otel("version", {}, otel_options, never_called)["ok"], "offline telemetry export cannot reach the transport")
+check(!prepare_options("doctor", ["--timeout", "NaN"])["ok"] && !prepare_options("doctor", ["--max-provider-units", "Infinity"])["ok"], "non-finite quotas are rejected")
+late := retry_contract_probe()["deadline"]
+check(!late["ok"] && contains(late["error"], "elapsed-time") == 1, "retry scheduling respects the remaining command deadline")
+limited := request_json(url, "GET", null, {}, {"max_response_bytes": 16, "retries": 0}, csv_contract_transport)
+check(!limited["ok"] && contains(limited["error"], "byte limit") == 1, "callback response bytes obey the operation limit")
+batch := prepare_options("batch", ["--commands", "pagespeed,crux", "--max-calls", "1"])["value"]
+check(!dispatch("batch", batch)["ok"], "live batch refuses an insufficient aggregate call budget before dispatch")
 output_dir := root + "-output"; create_dir(output_dir); output := output_dir + "/result.jsonl"
 query_options := prepare_options("evidence-query", ["--format", "jsonl", "--out", output])["value"]
 query := {"schema": "searchbridge.evidence-query/v1", "rows": [{"id": 1}], "provenance": {}}
@@ -53,6 +65,13 @@ write_file(output, "previous", true); query_options["max_output_bytes"] = 1
 check(!render_output(query, query_options)["ok"] && read_file(output) == "previous", "failed output budget preserves previous file")
 missing := prepare_options("analytics", ["--format", "jsonl", "--out", output, "--max-calls", "1"])["value"]
 check(!dispatch("analytics", missing)["ok"] && len(list_dir(output_dir)) == 1, "validation failure leaves no streaming temporary artifact")
+evidence_path := output_dir + "/input.jsonl"
+evidence_text := to_json({"name": "other", "row": 1}) + "\n" + to_json({"name": "wanted", "row": 2}) + "\n"
+write_file(evidence_path, evidence_text, false)
+rooted := prepare_options("evidence-query", ["--evidence-root", output_dir, "--evidence-path", "input.jsonl", "--filter-field", "name", "--filter-equals", "wanted"])["value"]
+rooted_result := dispatch("evidence-query", rooted)
+check(rooted_result["ok"] && rooted_result["value"]["rows"][0]["row"] == 2 && rooted_result["value"]["source_sha256"] == "sha256:" + sha256(evidence_text), "rooted evidence filters and hashes its captured bytes")
+check(!prepare_options("evidence-query", ["--evidence-path", evidence_path, "--out", evidence_path])["ok"], "evidence output preserves its input path")
 for name in list_dir(output_dir) { delete_file(output_dir + "/" + name) }; os_rmdir(output_dir)
 check(!bounded_csv_parse("name,value\na,ééé\n", 10, 4, 4)["ok"], "unquoted CSV cells obey UTF-8 byte limits")
 quoted_csv := bounded_csv_parse("\"last,first\",value\nname,42\n", 10, 2, 32)
