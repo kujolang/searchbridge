@@ -1,4 +1,4 @@
-from src.core import MAX_PROVIDER_BYTES, clean_error, failure, success, dict_get, utf8_size, includes, value_within_bounds
+from src.core import MAX_PROVIDER_BYTES, failure, success, dict_get, utf8_size, includes, value_within_bounds
 from src.cache import credential_independent_request_hash, read_protected_cached_response, write_protected_cached_response
 from src.protocols import bounded_csv_parse
 
@@ -26,20 +26,25 @@ func retry_delay(response, attempt, policy) {
 	if regex_match(retry_after, "^[0-9]+$") { if len(retry_after) > 6 { delay_ms = cap } else { delay_ms = to_int(retry_after) * 1000 } }
 	if delay_ms > cap { delay_ms = cap }
 	jitter_cap := dict_get(policy, "retry_jitter_ms", 100)
-	if jitter_cap > 0 && !dict_get(policy, "deterministic", false) { delay_ms = delay_ms + random_int(0, jitter_cap) }
+	if jitter_cap > 0 && !dict_get(policy, "deterministic", false) {
+		delay_ms = delay_ms + random_int(0, jitter_cap)
+		if delay_ms > cap { delay_ms = cap }
+	}
 	return delay_ms
 }
 
 func safe_cost(headers) {
 	mut cost := {}
 	for name in ["x-api-units-cost", "x-api-units-limit", "x-api-units-remaining"] {
-		value := header_value(headers, name); if value != "" && regex_match(value, "^[0-9.]+$") { cost[replace(name, "x-api-units-", "")] := value }
+		value := header_value(headers, name); if value != "" && regex_match(value, "^[0-9]{1,15}(\\.[0-9]{1,9})?$") { cost[replace(name, "x-api-units-", "")] := value }
 	}
 	return cost
 }
 
 export func request_json(url, method, body, headers, policy, transport) {
 	if dict_get(policy, "offline", false) && !dict_get(policy, "replay", false) { return failure("offline mode blocks live provider requests") }
+	response_limit := dict_get(policy, "max_response_bytes", MAX_PROVIDER_BYTES)
+	if response_limit < 1 || response_limit > MAX_PROVIDER_BYTES { return failure("invalid provider response byte limit") }
 	bound_request := {"body": body, "provider": dict_get(policy, "provider", ""), "adapter_version": dict_get(policy, "adapter_version", ""), "capability": dict_get(policy, "current_capability", ""), "profile": dict_get(policy, "profile", "")}
 	request_hash := credential_independent_request_hash(method, url, bound_request)
 	mut cache_dir := dict_get(policy, "cache_dir", "")
@@ -54,15 +59,17 @@ export func request_json(url, method, body, headers, policy, transport) {
 		cached := read_protected_cached_response(cache_dir, request_hash, dict_get(policy, "cache_max_age", 86400), current_timestamp(), backend)
 		if cached["ok"] {
 			value := cached["value"]
-			replay_run_id := dict_get(dict_get(value, "provenance", {}), "run_id", ""); return success({"status": value["status"], "body": value["body"], "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": utf8_size(to_json(value["body"])), "cache_status": "hit", "provider_cost": {}, "replay_run_id": replay_run_id}})
+			response_bytes := utf8_size(to_json(value["body"]))
+			if response_bytes > response_limit { return failure("cached response exceeded the provider response byte limit") }
+			replay_run_id := dict_get(dict_get(value, "provenance", {}), "run_id", ""); return success({"status": value["status"], "body": value["body"], "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": response_bytes, "cache_status": "hit", "provider_cost": {}, "replay_run_id": replay_run_id}})
 		}
 		if dict_get(policy, "replay", false) { return failure("approved replay unavailable: " + cached["error"]) }
 	}
 	mut merged := {"User-Agent": dict_get(policy, "user_agent", "Kujo-SearchBridge"), "Accept": "application/json"}
 	for key in keys(headers) { merged[key] := headers[key] }
 	if type(body) != "null" { merged["Content-Type"] := "application/json" }
-	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "destination_policy": "deny_private", "pin_dns": true, "max_response_bytes": MAX_PROVIDER_BYTES}
-	if dict_get(policy, "_test_allow_private", false) { request_options = {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "pin_dns": false, "max_response_bytes": MAX_PROVIDER_BYTES} }
+	mut request_options := {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "destination_policy": "deny_private", "pin_dns": true, "max_response_bytes": response_limit}
+	if dict_get(policy, "_test_allow_private", false) { request_options = {"method": method, "headers": merged, "timeout": dict_get(policy, "timeout", 30), "redirects": "none", "pin_dns": false, "max_response_bytes": response_limit} }
 	if type(body) != "null" { request_options["body"] = to_json(body) }
 	mut call_transport := transport; if type(call_transport) == "null" { call_transport = default_transport }
 	mut attempt := 0
@@ -73,7 +80,12 @@ export func request_json(url, method, body, headers, policy, transport) {
 	mut total_delay := 0
 	mut consecutive_failures := 0; circuit_threshold := dict_get(policy, "circuit_failure_threshold", max_attempts); if circuit_threshold < 1 { circuit_threshold = 1 }
 	started := current_timestamp()
+	deadline := dict_get(policy, "deadline_ms", started + dict_get(policy, "max_elapsed_ms", 120000))
 	while attempt < max_attempts {
+		remaining_ms := deadline - current_timestamp()
+		if remaining_ms <= 0 { return failure("provider elapsed-time budget exhausted") }
+		mut timeout := dict_get(policy, "timeout", 30); remaining_seconds := to_float(remaining_ms) / 1000.0
+		if timeout > remaining_seconds { timeout = remaining_seconds }; request_options["timeout"] = timeout
 		cancel_file := dict_get(policy, "cancel_file", ""); if cancel_file != "" && file_exists(cancel_file) { return failure("provider request cancelled") }
 		request_options["_attempt"] = attempt
 		request_result := call_transport(url, request_options)
@@ -82,7 +94,7 @@ export func request_json(url, method, body, headers, policy, transport) {
 			case Ok(response): {
 				retry_response = response
 				status := dict_get(response, "_status", dict_get(response, "status", 0)); raw := dict_get(response, "_body", dict_get(response, "body", ""))
-				if utf8_size(raw) > MAX_PROVIDER_BYTES { return failure("provider response exceeded 8 MiB") }
+				if utf8_size(raw) > response_limit { return failure("provider response exceeded its byte limit") }
 				if (status >= 200 && status < 300) || includes(dict_get(policy, "empty_statuses", []), status) {
 					mut payload := raw; if status < 200 || status >= 300 || payload == "" { payload = "{}" }
 					try {
@@ -97,12 +109,19 @@ export func request_json(url, method, body, headers, policy, transport) {
 				}
 				last_error = "provider returned HTTP " + to_string(status); if !policy_retries_status(status, policy) { return failure(last_error) }
 			}
-			case Err(transport_error): { last_error = clean_error(transport_error) }
+			case Err(transport_error): {
+				last_error = "provider transport failed"
+				if contains(to_lower(to_string(transport_error)), "timed out") { last_error = "provider transport timed out" }
+			}
 			case other: { last_error = "unexpected transport result: " + type(other) }
 		}
 		consecutive_failures = consecutive_failures + 1; if consecutive_failures >= circuit_threshold { return failure("provider circuit opened after " + to_string(consecutive_failures) + " consecutive failures") }
 		attempt = attempt + 1
-		if attempt < max_attempts { delay_ms := retry_delay(retry_response, attempt, policy); total_delay = total_delay + delay_ms; sleep(delay_ms) }
+		if attempt < max_attempts {
+			delay_ms := retry_delay(retry_response, attempt, policy)
+			if delay_ms >= deadline - current_timestamp() { return failure("provider elapsed-time budget exhausted before retry") }
+			total_delay = total_delay + delay_ms; sleep(delay_ms)
+		}
 	}
 	return failure(last_error)
 }
@@ -115,7 +134,8 @@ export func retry_contract_probe() {
 	retried := request_json("https://example.invalid", "POST", {}, {}, {"offline": false, "timeout": 1, "retries": 2, "user_agent": "test", "deterministic": true}, retry_transport)
 	capped_transport := func(_url, _options) { return Err("token=super-secret timeout") }
 	failed := request_json("https://example.invalid", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 1, "user_agent": "test", "deterministic": true}, capped_transport)
-	return {"retried": retried, "failed": failed}
+	deadline := request_json("https://example.invalid", "GET", null, {}, {"offline": false, "timeout": 1, "retries": 1, "max_elapsed_ms": 100, "deterministic": true}, capped_transport)
+	return {"retried": retried, "failed": failed, "deadline": deadline}
 }
 
 export func call_budget_contract_probe() {

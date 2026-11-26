@@ -75,15 +75,15 @@ export func parse_options(tokens) {
 		options["max_providers"] = to_int(options["max_providers"]); options["max_calls"] = to_int(options["max_calls"]); options["max_provider_units"] = to_float(options["max_provider_units"]); options["max_polls"] = to_int(options["max_polls"]); options["max_elapsed_ms"] = to_int(options["max_elapsed_ms"])
 		options["max_join_disk_bytes"] = to_int(options["max_join_disk_bytes"])
 	} except number_error { return failure("numeric option contains an invalid value") }
-	if options["timeout"] <= 0 || options["timeout"] > 120 { return failure("--timeout must be between 0 and 120 seconds") }
+	if !(options["timeout"] > 0 && options["timeout"] <= 120) { return failure("--timeout must be between 0 and 120 seconds") }
 	if options["retries"] < 0 || options["retries"] > 5 { return failure("--retries must be between 0 and 5") }
 	if options["limit"] < 1 || options["limit"] > 1000 { return failure("--limit must be between 1 and 1000") }
 	if options["page_size"] < 1 || options["page_size"] > 25000 || options["max_pages"] < 1 || options["max_pages"] > 1000 || options["max_total_rows"] < 1 || options["max_total_rows"] > 100000 { return failure("pagination budgets are outside supported bounds") }
-	if options["max_output_bytes"] < 256 { return failure("--max-output-bytes must be at least 256") }
-	if options["max_output_tokens"] < 64 { return failure("--max-output-tokens must be at least 64") }
+	if options["max_output_bytes"] < 256 || options["max_output_bytes"] > 67108864 { return failure("--max-output-bytes must be between 256 and 67108864") }
+	if options["max_output_tokens"] < 64 || options["max_output_tokens"] > 16777216 { return failure("--max-output-tokens must be between 64 and 16777216") }
 	if options["cache_max_age"] < 0 || options["task_state_max_age"] < 1 || options["task_state_max_age"] > 604800 || options["max_concurrency"] < 1 || options["max_concurrency"] > 32 { return failure("cache/task-state age or concurrency is outside supported bounds") }
 	if options["resume_task"] && options["task_state_dir"] == "" { return failure("--resume-task requires --task-state-dir") }
-	if options["max_providers"] < 1 || options["max_providers"] > 8 || options["max_calls"] < 0 || options["max_calls"] > 1000 || options["max_provider_units"] < 0 || options["max_polls"] < 1 || options["max_polls"] > 20 || options["max_elapsed_ms"] < 1 || options["max_elapsed_ms"] > 120000 { return failure("provider execution budgets are outside supported bounds") }
+	if options["max_providers"] < 1 || options["max_providers"] > 8 || options["max_calls"] < 0 || options["max_calls"] > 1000 || !(options["max_provider_units"] >= 0 && options["max_provider_units"] - options["max_provider_units"] == 0) || options["max_polls"] < 1 || options["max_polls"] > 20 || options["max_elapsed_ms"] < 1 || options["max_elapsed_ms"] > 120000 { return failure("provider execution budgets are outside supported bounds") }
 	if !includes(["json", "jsonl"], options["format"]) { return failure("--format must be json or jsonl") }
 	if !includes(["info", "warn", "fail"], options["health_policy"]) { return failure("--health-policy must be info, warn, or fail") }
 	if !includes(["audit", "migrate", "rotate", "cleanup", "recover"], options["cache_action"]) { return failure("--cache-action must be audit, migrate, rotate, cleanup, or recover") }
@@ -174,6 +174,7 @@ func finalize_result(command, options, result) {
 }
 
 export func dispatch(command, options) {
+	if has_key(options, "deadline_ms") == 0 { options["deadline_ms"] := current_timestamp() + dict_get(options, "max_elapsed_ms", 120000) }
 	capability := invocation_capability(command, options); options["invocation_command"] := command; options["run_id"] := run_identifier(options, command, capability); options["query_fingerprint"] := query_fingerprint(options, capability)
 	if command == "adapter-conformance" { return {"ok": true, "value": adapter_conformance_report()} }
 	if command == "adapter-run" { options["current_capability"] := options["capability"]; return finalize_result(command, options, run_signed_adapter(options)) }
@@ -229,7 +230,7 @@ func command_fetch(options) {
 	if options["adapter_manifest"] != "" {
 		if includes(["auto", "all"], options["provider"]) { return failure("external adapter fetch requires its explicit provider id") }
 		if !options["fixture"] && !options["allow_unverified_live"] { return failure("direct live execution for support tier external-reference requires --allow-unverified-live") }
-		requested_provider := options["provider"]; options["current_capability"] = capability; external := run_signed_adapter(options); if !external["ok"] { return external }; if external["value"]["provider"] != requested_provider { return failure("external adapter id does not match --provider") }
+		requested_provider := options["provider"]; options["current_capability"] = capability; external := run_signed_adapter(options); if !external["ok"] { return external }
 		external_value := external["value"]; external_value["routing"] := {"mode": "explicit", "selected": [requested_provider], "candidates": [{"provider": requested_provider, "accepted": true, "reason": "verified signed external adapter"}]}; return {"ok": true, "value": external_value}
 	}
 	route := resolve(capability, options["provider"], preferences, enabled, !options["fixture"]); if !route["ok"] { return route }; routing := route["value"]; selected := routing["selected"]
@@ -286,13 +287,35 @@ async func batch_worker(job) {
 func command_batch(options) {
 	requested := split(options["commands"], ",")
 	if options["commands"] == "" { requested = ["search-performance", "analytics", "pagespeed", "crux", "backlinks", "keyword-data"] }
-	mut jobs := []
+	mut commands := []
+	mut paid_jobs := 0
 	for raw in requested {
 		name := trim(raw)
 		if name == "" { continue }
 		if !includes(["search-performance", "analytics", "inspect-url", "pagespeed", "crux", "backlinks", "keyword-data"], name) { return failure("batch only accepts independent read commands") }
-		mut item_options := {}; for key in keys(options) { item_options[key] := options[key] }; item_options["provider"] = ""; item_options["parent_run_ids"] = [options["run_id"]]; item_options["run_id"] = ""
-		item_options = apply_command_defaults(name, item_options); jobs = push(jobs, {"command": name, "options": item_options})
+		if len(commands) >= 32 { return failure("batch accepts at most 32 read commands") }
+		commands = push(commands, name)
+		if includes(["backlinks", "keyword-data"], name) { paid_jobs = paid_jobs + 1 }
+	}
+	if len(commands) == 0 { return failure("batch requires at least one read command") }
+	live := !options["fixture"] && !options["replay"]
+	if live && options["max_calls"] < len(commands) { return failure("batch requires at least one call per live command") }
+	if live && paid_jobs > 0 && (!options["allow_paid"] || options["max_provider_units"] < paid_jobs) {
+		return failure("batch paid commands require explicit approval and sufficient provider units")
+	}
+	mut jobs := []
+	mut remaining_calls := options["max_calls"]
+	for name in commands {
+		mut item_options := {}; for key in keys(options) { item_options[key] := options[key] }
+		item_options["provider"] = ""; item_options["parent_run_ids"] = [options["run_id"]]; item_options["run_id"] = ""
+		if live {
+			call_share := remaining_calls / (len(commands) - len(jobs))
+			item_options["max_calls"] = call_share
+			remaining_calls = remaining_calls - call_share
+			if includes(["backlinks", "keyword-data"], name) { item_options["max_provider_units"] = options["max_provider_units"] / to_float(paid_jobs) }
+		}
+		item_options = apply_command_defaults(name, item_options)
+		jobs = push(jobs, {"command": name, "options": item_options})
 	}
 	results := await parallel_map(jobs, batch_worker, options["max_concurrency"]); mut succeeded := 0; mut failed := 0
 	for result in results { if result["ok"] { succeeded = succeeded + 1 } else { failed = failed + 1 } }

@@ -18,6 +18,7 @@ func safe_profile_values(values) {
 	mut output := {}
 	for key in keys(values) {
 		if !includes(configurable_keys(), key) { return failure("unsupported configuration key: " + key) }
+		if includes(["fixture", "offline", "deterministic", "allow_paid"], key) && type(values[key]) != "bool" { return failure("configuration option " + key + " must be a boolean") }
 		output[key] := values[key]
 	}
 	return success(output)
