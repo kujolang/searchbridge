@@ -50,11 +50,13 @@ upgrading; `--replay` fails closed until a matching new record exists. Cache
 record formats v1/v2 and encryption key configuration are unchanged. Migration
 and rotation preserve record identities; they do not upgrade old request hashes.
 Cache files must be regular, non-symlink files named by their 64-character hash;
-records over 16 MiB and response bodies outside provider limits are rejected.
+encoded records over 8 MiB and response bodies outside provider limits are rejected before writing. The ceiling includes encryption and JSON overhead. Reads leave expired records intact for explicit cleanup.
 Future timestamps cannot extend retention. Submission receipts are never cached
 or replayed: each authorized live submission reaches its provider.
 
 ## Evidence joins
+
+The supported runtime caps each SQLite spill input at 8 MiB and enforces its page budget during the join.
 
 Use nested joins for small inputs and `--join-strategy spill` for larger JSONL.
 Place `--join-temp-dir` on an owner-only local volume, set
@@ -66,7 +68,7 @@ joined evidence. After an interrupted job, remove only verified
 
 ## External adapter deployment
 
-Validate and test an adapter in fixture mode first. Review every manifest
+Validate and test an adapter in fixture mode first. The CLI reads at most 8 MiB per declared package file and 32 MiB across all of them. It verifies each fixture against its declared digest before parsing the captured bytes. Review every manifest
 capability, exact endpoint, credential name/binding, cost, retention, retry, and
 pagination limit. At invocation, repeat all three allowlists. Load publisher
 public keys from environment variables; never ship private signing keys. Rotate

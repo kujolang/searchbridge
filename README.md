@@ -131,7 +131,7 @@ key rotation, retention cleanup, and corruption quarantine require `--act
 ```
 
 The `batch` command runs independent reads concurrently up to
-`--max-concurrency`, preserves request ordering, checks
+`--max-concurrency`, preserves request ordering, accepts up to 32 reads, divides live call and paid-provider budgets among the planned commands, and checks
 `--cancel-file` before dispatch and between retries, and returns
 `searchbridge.batch/v1` partial-success records. Mutation commands cannot enter
 a batch. Live GSC and GA4 JSONL exports normalize each page and append it to a
@@ -140,8 +140,7 @@ full row budget is never retained in memory.
 
 Asynchronous tasks can persist a credential-free, query-bound task identifier
 in an explicit state directory. An interrupted run can continue polling with
-`--resume-task`; completed and expired receipts are removed, while a bounded
-polling failure retains the receipt for a later run.
+`--resume-task`; completed receipts are removed, and expired receipts are rejected. A bounded polling failure retains the receipt for a later run.
 
 ## Protected replay and external adapters
 
@@ -180,7 +179,7 @@ OpenTelemetry export is disabled unless `--otel-endpoint` is provided. It emits
 OTLP JSON traces and metrics containing only command, schema, capability,
 provider, timing, retry, byte, count, truncation, cache, and cost-class fields.
 URLs, headers, tokens, bodies, and rows never enter the payload. `file:PATH`
-provides a local collector fixture path.
+provides a local collector fixture path. Offline and replay runs accept only local telemetry files.
 
 ## Configuration profiles
 

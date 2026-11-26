@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Enforce offline telemetry, provider response and elapsed-time limits, and aggregate live batch budgets.
+- Bind signed adapter verification and MCP evidence queries to bounded snapshots. Validate an adapter's identity before provider activity.
+- Keep expired cache and task receipts intact on read. Bound encoded cache records and enforce SQLite join disk and output limits before publishing results.
+
 ## 1.0.2 — 2026-10-21
 
 - Require patched Node.js versions across TypeScript SDK, MCP, and release tooling.
