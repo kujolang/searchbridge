@@ -27,7 +27,18 @@ export func credential_independent_request_hash(method, url, body) {
 
 func valid_request_hash(value) { return type(value) == "string" && regex_match(value, "^[a-f0-9]{64}$") }
 
-func bounded_cache_file(path) { return io_file_metadata(path)["size"] <= 16777216 }
+func read_cache_record(cache_dir, path) {
+	return parse_json(read_file_beneath(cache_dir, basename(path), MAX_PROVIDER_BYTES))
+}
+
+func write_cache_record(cache_dir, request_hash, record) {
+	path := cache_path(cache_dir, request_hash)
+	text := to_json(record) + "\n"
+	if utf8_size(text) > MAX_PROVIDER_BYTES { return failure("encoded cache record exceeded 8 MiB") }
+	if file_exists(path) && (!path_is_file(path) || path_is_symlink(path)) { return failure("unsafe cache record") }
+	write_file_atomic(path, text, true)
+	return success(true)
+}
 func bounded_cache_body(body) { return value_within_bounds(body, 0) && utf8_size(to_json(body)) <= MAX_PROVIDER_BYTES }
 
 func cache_path(cache_dir, request_hash) { return path_join(cache_dir, request_hash + ".json") }
@@ -38,15 +49,18 @@ export func read_cached_response(cache_dir, request_hash, max_age_seconds, now_m
 
 export func read_protected_cached_response(cache_dir, request_hash, max_age_seconds, now_ms, backend) {
 	if cache_dir == "" { return failure("cache disabled") }
+	if file_exists(cache_dir) && path_is_symlink(cache_dir) { return failure("unsafe cache directory") }
 	if !valid_request_hash(request_hash) { return failure("invalid cache request hash") }
 	path := cache_path(cache_dir, request_hash)
 	if !file_exists(path) { return failure("cache miss") }
 	if path_is_symlink(path) || !path_is_file(path) { return failure("unsafe cache record") }
 	try {
-		if !bounded_cache_file(path) { return failure("cache record exceeded 16 MiB") }; record := parse_json(read_file(path))
+		record := read_cache_record(cache_dir, path)
 		if dict_get(record, "request_hash", "") != request_hash { return failure("invalid cache record") }
-		age_ms := now_ms - dict_get(record, "stored_at_ms", 0)
-		if age_ms < 0 || (max_age_seconds >= 0 && age_ms > max_age_seconds * 1000) { delete_file(path); return failure("cache expired and was removed") }
+		stored_at := dict_get(record, "stored_at_ms", null)
+		if type(stored_at) != "int" || stored_at < 0 || stored_at > now_ms { return failure("invalid cache timestamp") }
+		age_ms := now_ms - stored_at
+		if max_age_seconds >= 0 && age_ms > max_age_seconds * 1000 { return failure("cache expired") }
 		if dict_get(record, "schema", "") == "searchbridge.cache/v2" {
 			key_variable := dict_get(backend, "encryption_key_env", "")
 			if key_variable == "" || env(key_variable) == "" { return failure("encrypted replay requires its configured key environment variable") }
@@ -76,6 +90,7 @@ export func write_protected_cached_response(cache_dir, request_hash, status, bod
 	if !bounded_cache_body(body) { return failure("cache response exceeded safety bounds") }
 	if dict_get(backend, "require_encryption", false) && dict_get(backend, "encryption_key_env", "") == "" { return failure("encrypted cache requires its configured key environment variable") }
 	try {
+		if file_exists(cache_dir) && path_is_symlink(cache_dir) { return failure("unsafe cache directory") }
 		if !path_is_dir(cache_dir) { create_dir(cache_dir) }
 		key_variable := dict_get(backend, "encryption_key_env", "")
 		provenance := dict_get(backend, "provenance", {})
@@ -85,30 +100,27 @@ export func write_protected_cached_response(cache_dir, request_hash, status, bod
 			if type(ciphertext) != "string" { return failure("cache encryption failed") }
 			mut integrity_material := request_hash + "\n" + now_text_value + "\n" + to_string(now_ms) + "\n" + ciphertext; if len(keys(provenance)) > 0 { integrity_material = integrity_material + "\n" + to_json(provenance) }
 			record := {"schema": "searchbridge.cache/v2", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "ciphertext": ciphertext, "provenance": provenance, "integrity": hmac_sha256(key, integrity_material)}
-			write_file_atomic(cache_path(cache_dir, request_hash), to_json(record) + "\n", true)
-			return success(true)
+			return write_cache_record(cache_dir, request_hash, record)
 		}
 		record := {"schema": "searchbridge.cache/v1", "request_hash": request_hash, "stored_at": now_text_value, "stored_at_ms": now_ms, "status": status, "body": body, "provenance": provenance}
-		write_file_atomic(cache_path(cache_dir, request_hash), to_json(record) + "\n", true)
-		return success(true)
+		return write_cache_record(cache_dir, request_hash, record)
 	} except cache_error { return failure("cache write failed: " + clean_error(cache_error)) }
 }
 
 func cache_files(cache_dir) { mut files := []; if !path_is_dir(cache_dir) { return files }; for name in sort(list_dir(cache_dir)) { if ends_with(name, ".json") { path := path_join(cache_dir, name); if path_is_file(path) && !path_is_symlink(path) { files = push(files, path) } } }; return files }
 
 export func audit_cache(cache_dir, max_age_seconds, now_ms) {
-	if cache_dir == "" || !path_is_dir(cache_dir) { return failure("cache directory is unavailable") }; mut report := {"schema": "searchbridge.cache-maintenance/v1", "action": "audit", "files": 0, "v1": 0, "v2": 0, "expired": 0, "corrupt": 0, "changed": 0}
-	for path in cache_files(cache_dir) { report["files"] = report["files"] + 1; if !bounded_cache_file(path) { report["corrupt"] = report["corrupt"] + 1; continue }; try { record := parse_json(read_file(path)); request_hash := dict_get(record, "request_hash", ""); if !valid_request_hash(request_hash) || cache_path(cache_dir, request_hash) != path { report["corrupt"] = report["corrupt"] + 1; continue }; schema := dict_get(record, "schema", ""); if schema == "searchbridge.cache/v1" { report["v1"] = report["v1"] + 1 } else if schema == "searchbridge.cache/v2" { report["v2"] = report["v2"] + 1 } else { report["corrupt"] = report["corrupt"] + 1 }; age := now_ms - dict_get(record, "stored_at_ms", 0); if age < 0 || age > max_age_seconds * 1000 { report["expired"] = report["expired"] + 1 } } except audit_error { report["corrupt"] = report["corrupt"] + 1 } }
+	if cache_dir == "" || !path_is_dir(cache_dir) || path_is_symlink(cache_dir) { return failure("cache directory is unavailable or unsafe") }; mut report := {"schema": "searchbridge.cache-maintenance/v1", "action": "audit", "files": 0, "v1": 0, "v2": 0, "expired": 0, "corrupt": 0, "changed": 0}
+	for path in cache_files(cache_dir) { report["files"] = report["files"] + 1; try { record := read_cache_record(cache_dir, path); request_hash := dict_get(record, "request_hash", ""); if !valid_request_hash(request_hash) || cache_path(cache_dir, request_hash) != path { report["corrupt"] = report["corrupt"] + 1; continue }; schema := dict_get(record, "schema", ""); if schema == "searchbridge.cache/v1" { report["v1"] = report["v1"] + 1 } else if schema == "searchbridge.cache/v2" { report["v2"] = report["v2"] + 1 } else { report["corrupt"] = report["corrupt"] + 1 }; age := now_ms - dict_get(record, "stored_at_ms", 0); if age < 0 || age > max_age_seconds * 1000 { report["expired"] = report["expired"] + 1 } } except audit_error { report["corrupt"] = report["corrupt"] + 1 } }
 	return success(report)
 }
 
 export func maintain_cache(cache_dir, action, max_age_seconds, old_key_env, new_key_env, now_ms, now_text_value) {
-	if action == "audit" { return audit_cache(cache_dir, max_age_seconds, now_ms) }; if !includes(["migrate", "rotate", "cleanup", "recover"], action) { return failure("unknown cache maintenance action") }; if cache_dir == "" || !path_is_dir(cache_dir) { return failure("cache directory is unavailable") }
+	if action == "audit" { return audit_cache(cache_dir, max_age_seconds, now_ms) }; if !includes(["migrate", "rotate", "cleanup", "recover"], action) { return failure("unknown cache maintenance action") }; if cache_dir == "" || !path_is_dir(cache_dir) || path_is_symlink(cache_dir) { return failure("cache directory is unavailable or unsafe") }
 	if includes(["migrate", "rotate"], action) && (new_key_env == "" || env(new_key_env) == "") { return failure("cache migration/rotation requires the new key environment variable") }; if action == "rotate" && (old_key_env == "" || env(old_key_env) == "") { return failure("cache rotation requires the old key environment variable") }
 	files := cache_files(cache_dir); mut changed := 0; mut corrupt := 0; mut expired := 0; mut v1 := 0; mut v2 := 0
 	for path in files {
-		if !bounded_cache_file(path) { corrupt = corrupt + 1; if action == "recover" { rename_file(path, path + ".corrupt-" + to_string(now_ms)); changed = changed + 1 }; continue }
-		mut record := null; try { record = parse_json(read_file(path)) } except parse_error { corrupt = corrupt + 1; if action == "recover" { rename_file(path, path + ".corrupt-" + to_string(now_ms)); changed = changed + 1 }; continue }; schema := dict_get(record, "schema", ""); age := now_ms - dict_get(record, "stored_at_ms", 0)
+		mut record := null; try { record = read_cache_record(cache_dir, path) } except parse_error { corrupt = corrupt + 1; if action == "recover" { rename_file(path, path + ".corrupt-" + to_string(now_ms)); changed = changed + 1 }; continue }; schema := dict_get(record, "schema", ""); stored_at := dict_get(record, "stored_at_ms", null); if type(stored_at) != "int" { corrupt = corrupt + 1; continue }; age := now_ms - stored_at
 		request_hash := dict_get(record, "request_hash", "")
 		if !valid_request_hash(request_hash) || cache_path(cache_dir, request_hash) != path { corrupt = corrupt + 1; if action == "recover" { rename_file(path, path + ".corrupt-" + to_string(now_ms)); changed = changed + 1 }; continue }
 		if age < 0 || age > max_age_seconds * 1000 { expired = expired + 1; if action == "cleanup" { delete_file(path); changed = changed + 1 }; continue }
