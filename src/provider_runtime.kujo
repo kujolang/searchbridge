@@ -105,7 +105,9 @@ func live_request(provider, capability, options) {
 			result_endpoint := base + task_id; checked_result_endpoint := validate_template_endpoint(result_endpoint, result_template, "{task_id}", task_id); if !checked_result_endpoint["ok"] { return checked_result_endpoint }
 			polled := request_json(result_endpoint, "GET", null, {"Authorization": "Basic " + encode_base64(login + ":" + password)}, request_options, options["transport"]); calls = calls + 1; polls = polls + 1
 			if !polled["ok"] { return polled }; if len(dfs_items(polled["value"]["body"])) > 0 { clear_task_state(dict_get(options, "task_state_dir", ""), provider, op["id"], task_fingerprint); telemetry := polled["value"]["telemetry"]; telemetry["task_polls"] := polls; telemetry["task_resumed"] := resumed; telemetry["attempts"] = calls; mut polled_value := polled["value"]; polled_value["telemetry"] = telemetry; return success(polled_value) }
-			sleep(250)
+			deadline := dict_get(options, "deadline_ms", started + options["max_elapsed_ms"])
+			if calls < options["max_calls"] && polls < options["max_polls"] && current_timestamp() + 250 < deadline { sleep(250) }
+			else { break }
 		}
 		return failure("DataForSEO task polling budget exceeded; resumable state retained when configured")
 	}

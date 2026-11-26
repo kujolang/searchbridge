@@ -1,4 +1,4 @@
-from src.core import VERSION, dict_get, failure, success, providers, query_encode, query_fingerprint
+from src.core import VERSION, dict_get, failure, success, providers, query_encode, query_fingerprint, MAX_PROVIDER_BYTES
 from src.registry import adapters, operation_for
 from src.transport import request_json, external_pagination_contract_transport, retry_contract_probe
 from src.protocols import validate_exact_endpoint, validate_template_endpoint, graphql_result, cost_preflight, bounded_csv_parse
@@ -29,7 +29,7 @@ export func adapter_version_compatible(minimum, maximum) { lower := semver_compa
 
 export func canonical_json(value) {
 	if type(value) == "dict" { mut members := []; for key in sort(keys(value)) { members = push(members, to_json(key) + ":" + canonical_json(value[key])) }; return "{" + join(members, ",") + "}" }
-	if type(value) == "list" { mut members := []; for item in value { members = push(members, canonical_json(item)) }; return "[" + join(members, ",") + "]" }
+	if type(value) == "array" { mut members := []; for item in value { members = push(members, canonical_json(item)) }; return "[" + join(members, ",") + "]" }
 	return to_json(value)
 }
 
@@ -84,20 +84,56 @@ export func validate_adapter_v2(adapter) {
 	return {"ok": len(errors) == 0, "errors": errors}
 }
 
-func safe_package_path(relative) { return relative != "" && !starts_with(relative, "/") && contains(relative, "..") == 0 && contains(relative, "\\") == 0 }
+func safe_package_path(relative) { return relative != "" && !starts_with(relative, "/") && contains(relative, "..") == 0 && contains(relative, "\\") == 0 && contains(relative, ":") == 0 }
+
+func read_adapter_text(path, limit) {
+	return read_file_beneath(dirname(path), basename(path), limit)
+}
+
+func verify_trusted_signature(manifest_text, signature_text, key_environment, expected_fingerprint) {
+	revoked := split(env("SEARCHBRIDGE_ADAPTER_REVOKED_FINGERPRINTS"), ",")
+	if expected_fingerprint != "" && includes(revoked, expected_fingerprint) { return failure("adapter publisher trust key is revoked") }
+	mut available := false
+	for variable in split(key_environment, ",") {
+		key := env(trim(variable))
+		if key == "" { continue }
+		available = true
+		fingerprint := "sha256:" + sha256(trim(key))
+		if includes(revoked, fingerprint) || (expected_fingerprint != "" && expected_fingerprint != fingerprint) { continue }
+		if rsa_verify(manifest_text, signature_text, key) { return success(true) }
+	}
+	if !available { return failure("adapter signature key environment variable is unavailable") }
+	return failure("adapter signature did not match a trusted, non-revoked key")
+}
 
 export func load_signed_adapter_v2(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) {
 	if manifest_path == "" || signature_path == "" || key_environment == "" { return failure("signed adapters require manifest, signature, and trust key") }
 	try {
-		manifest_text := read_file(manifest_path); adapter := parse_json(manifest_text)
+		text := read_adapter_text(manifest_path, 1048576)
+		return validate_signed_adapter_v2(manifest_path, text, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist)
+	} except adapter_error { return failure("could not read bounded adapter manifest") }
+}
+
+func validate_signed_adapter_v2(manifest_path, manifest_text, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) {
+	if manifest_path == "" || signature_path == "" || key_environment == "" { return failure("signed adapters require manifest, signature, and trust key") }
+	try {
+		adapter := parse_json(manifest_text)
 		if canonical_json(adapter) != trim(manifest_text) { return failure("adapter manifest is not canonical JSON") }
 		checked := validate_adapter_v2(adapter); if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
-		expected_fingerprint := dict_get(dict_get(adapter, "publisher", {}), "key_fingerprint", ""); revoked := split(env("SEARCHBRIDGE_ADAPTER_REVOKED_FINGERPRINTS"), ","); if includes(revoked, expected_fingerprint) { return failure("adapter publisher trust key is revoked") }; mut verified := false; mut available := false; for variable in split(key_environment, ",") { key := env(trim(variable)); if key == "" { continue }; available = true; if expected_fingerprint == "sha256:" + sha256(trim(key)) && rsa_verify(manifest_text, trim(read_file(signature_path)), key) == true { verified = true } }; if !available { return failure("adapter signature key environment variable is unavailable") }; if !verified { return failure("adapter package signature did not match a trusted, non-revoked publisher key") }
+		signature_text := trim(read_adapter_text(signature_path, 65536))
+		expected_fingerprint := dict_get(dict_get(adapter, "publisher", {}), "key_fingerprint", "")
+		verified := verify_trusted_signature(manifest_text, signature_text, key_environment, expected_fingerprint)
+		if !verified["ok"] { return verified }
 		base := dirname(manifest_path)
+		mut package_bytes := 0
 		for file in dict_get(adapter, "package_files", []) {
 			relative := dict_get(file, "path", ""); if !safe_package_path(relative) { return failure("unsafe adapter package path") }
-			path := path_join(base, relative); if !path_is_file(path) || path_is_symlink(path) { return failure("adapter package file is missing or unsafe") }
-			if sha256_file(path) != dict_get(file, "sha256", "") { return failure("adapter package file digest mismatch") }
+			remaining := 33554432 - package_bytes
+			if remaining < 1 { return failure("adapter package exceeded 32 MiB") }
+			mut limit := MAX_PROVIDER_BYTES; if remaining < limit { limit = remaining }
+			bytes := read_binary_file_beneath(base, relative, limit)
+			package_bytes = package_bytes + len(bytes)
+			if sha256(bytes) != dict_get(file, "sha256", "") { return failure("adapter package file digest mismatch") }
 		}
 		for capability in adapter["capabilities"] { if !includes(capability_allowlist, capability["id"]) { return failure("adapter capability is not allowlisted: " + capability["id"]) } }
 		for operation in adapter["operations"] {
@@ -105,7 +141,7 @@ export func load_signed_adapter_v2(manifest_path, signature_path, key_environmen
 			result_endpoint := dict_get(operation["request"], "result_endpoint_template", ""); if result_endpoint != "" && !includes(endpoint_allowlist, result_endpoint) { return failure("adapter result endpoint is not allowlisted") }
 		}
 		for credential in adapter["credentials"] { if !includes(credential_allowlist, credential["name"]) { return failure("adapter credential environment variable is not allowlisted") }; for endpoint in dict_get(dict_get(credential, "bind", {}), "endpoint_templates", []) { if !includes(endpoint_allowlist, endpoint) { return failure("adapter credential result binding is not endpoint-allowlisted") } } }
-		return success(adapter)
+		return {"ok": true, "value": adapter, "manifest_hash": sha256(manifest_text)}
 	} except adapter_error { return failure("could not load signed adapter package: " + to_string(adapter_error)) }
 }
 
@@ -127,17 +163,19 @@ export func execute_adapter(registry, name, capability, options) {
 export func load_signed_adapter(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) {
 	if manifest_path == "" || signature_path == "" || key_environment == "" { return failure("signed adapters require --adapter-manifest, --adapter-signature, and --adapter-key-env") }
 	try {
-		manifest_text := read_file(manifest_path)
+		manifest_text := read_adapter_text(manifest_path, 1048576)
 		preview := parse_json(manifest_text)
-		if dict_get(preview, "contract", "") == "searchbridge-adapter/v2" { return load_signed_adapter_v2(manifest_path, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) }
-		signature := trim(read_file(signature_path)); mut verified := false; mut available := false; revoked := split(env("SEARCHBRIDGE_ADAPTER_REVOKED_FINGERPRINTS"), ","); for variable in split(key_environment, ",") { key := env(trim(variable)); if key == "" { continue }; available = true; fingerprint := "sha256:" + sha256(trim(key)); if !includes(revoked, fingerprint) && rsa_verify(manifest_text, signature, key) == true { verified = true } }; if !available { return failure("adapter signature key environment variable is unavailable") }; if !verified { return failure("adapter manifest signature did not match a trusted, non-revoked key") }
+		if dict_get(preview, "contract", "") == "searchbridge-adapter/v2" { return validate_signed_adapter_v2(manifest_path, manifest_text, signature_path, key_environment, capability_allowlist, endpoint_allowlist, credential_allowlist) }
+		signature_text := trim(read_adapter_text(signature_path, 65536))
+		verified := verify_trusted_signature(manifest_text, signature_text, key_environment, "")
+		if !verified["ok"] { return verified }
 		adapter := parse_json(manifest_text); checked := validate_adapter(adapter); if !checked["ok"] { return failure(join(checked["errors"], "; ")) }
 		schema_check := json_schema_validate(adapter, parse_json(read_file("schemas/adapter-manifest.schema.json"))); if !schema_check["valid"] { return failure("adapter manifest does not satisfy its schema") }
 		for capability in adapter["capabilities"] { if !includes(capability_allowlist, capability) { return failure("adapter capability is not allowlisted: " + capability) } }
 		endpoint := dict_get(adapter["request"], "endpoint", ""); if !includes(endpoint_allowlist, endpoint) { return failure("adapter endpoint is not allowlisted") }
 		credential_environment := dict_get(adapter["request"], "credential_env", "")
 		if credential_environment != "" && !includes(credential_allowlist, credential_environment) { return failure("adapter credential environment variable is not allowlisted") }
-		return success(adapter)
+		return {"ok": true, "value": adapter, "manifest_hash": sha256(manifest_text)}
 	} except adapter_error { return failure("could not load signed adapter: " + to_string(adapter_error)) }
 }
 
@@ -230,9 +268,18 @@ func run_signed_adapter_v2(adapter, options) {
 	if type(operation) == "null" { return failure("adapter does not implement requested capability") }
 	options["provider"] = adapter["id"]; options["adapter_version"] = adapter["adapter_version"]; retention_cap := dict_get(dict_get(adapter, "retention", {}), "max_cache_age_seconds", 86400); if (options["cache_dir"] != "" || options["replay"]) && options["cache_max_age"] > retention_cap { return failure("adapter retention policy caps cache age") }; preflight := cost_preflight(adapter["cost_class"], options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
 	reliability := dict_get(operation, "reliability", {}); max_retries := dict_get(reliability, "max_retries", options["retries"]); if options["retries"] > max_retries { options["retries"] = max_retries }; options["retry_statuses"] = dict_get(reliability, "retry_statuses", [429, 500, 502, 503, 504]); options["retry_delay_cap_ms"] = dict_get(reliability, "retry_delay_cap_ms", 5000); options["circuit_failure_threshold"] = dict_get(reliability, "circuit_failure_threshold", 3)
-	mut raw_result := null; base := dirname(options["adapter_manifest"]); request := operation["request"]; response := operation["response"]; pagination := operation["pagination"]
+	mut raw_result := null; base := dirname(options["adapter_manifest"]); request := operation["request"]; response := operation["response"]; pagination := operation["pagination"]; options["max_response_bytes"] := response["max_bytes"]
 	if options["fixture"] {
-		relative := operation["fixture"]; mut expected_digest := ""; for file in adapter["package_files"] { if file["path"] == relative { expected_digest = file["sha256"] } }; if !safe_package_path(relative) || expected_digest == "" { return failure("adapter fixture is not a declared safe package file") }; fixture_path := path_join(base, relative); if !path_is_file(fixture_path) || path_is_symlink(fixture_path) || sha256_file(fixture_path) != expected_digest { return failure("adapter fixture failed package integrity verification") }; raw_result = success({"body": parse_json(read_file(fixture_path)), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})
+		relative := operation["fixture"]
+		mut expected_digest := ""
+		for file in adapter["package_files"] { if file["path"] == relative { expected_digest = file["sha256"] } }
+		if !safe_package_path(relative) || expected_digest == "" { return failure("adapter fixture is not a declared safe package file") }
+		try {
+			fixture_bytes := read_binary_file_beneath(base, relative, response["max_bytes"])
+			if sha256(fixture_bytes) != expected_digest { return failure("adapter fixture failed package integrity verification") }
+			body := parse_json(decode_base64_utf8(encode_base64(fixture_bytes)))
+			raw_result = success({"body": body, "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}})
+		} except fixture_error { return failure("unable to read bounded adapter fixture") }
 	} else {
 		endpoint := request["endpoint_template"]; mut headers := {}; allowed_fields := dict_get(request, "allowed_query_fields", []); template := dict_get(request, "body_template", dict_get(request, "body", null)); built_body := materialize_template(template, options); if !built_body["ok"] { return built_body }; mut body := built_body["value"]; body_fields := validate_body_fields(body, allowed_fields); if !body_fields["ok"] { return body_fields }; built_endpoint := append_query_template(endpoint, dict_get(request, "query_template", {}), allowed_fields, options); if !built_endpoint["ok"] { return built_endpoint }; endpoint = built_endpoint["value"]; mut auth_mode := "none"
 		credential_name := dict_get(request, "credential", "")
@@ -261,7 +308,7 @@ func run_signed_adapter_v2(adapter, options) {
 			result_template := request["result_endpoint_template"]; result_endpoint := replace(result_template, "{task_id}", task_id); checked_result := validate_template_endpoint(result_endpoint, result_template, "{task_id}", task_id); if !checked_result["ok"] { return checked_result }
 			mut poll_headers := {}; if credential_name != "" { mut spec := null; for item in adapter["credentials"] { if item["name"] == credential_name { spec = item } }; bound_results := dict_get(dict_get(spec, "bind", {}), "endpoint_templates", []); if includes(bound_results, result_template) { poll_headers = headers } }
 			while type(completed_body) == "null" && polls < options["max_polls"] && total_telemetry["attempts"] < options["max_calls"] && current_timestamp() - task_started <= options["max_elapsed_ms"] {
-				poll_interval := dict_get(pagination, "poll_interval_ms", 250); if poll_interval > 0 { sleep(poll_interval) }; request_options["max_calls"] = options["max_calls"] - total_telemetry["attempts"]; request_options["retries"] = 0; polled := request_json(result_endpoint, dict_get(pagination, "poll_method", "GET"), null, poll_headers, request_options, options["transport"]); if !polled["ok"] { return polled }; item_telemetry := polled["value"]["telemetry"]; for field in ["attempts", "retries", "latency_ms", "retry_delay_ms", "response_bytes"] { total_telemetry[field] = total_telemetry[field] + item_telemetry[field] }; total_telemetry["cache_status"] = item_telemetry["cache_status"]; total_telemetry["provider_cost"] = item_telemetry["provider_cost"]; polls = polls + 1; polled_body := polled["value"]["body"]; poll_status := json_pointer(polled_body, pagination["status_pointer"])
+				poll_interval := dict_get(pagination, "poll_interval_ms", 250); deadline := dict_get(options, "deadline_ms", task_started + options["max_elapsed_ms"]); if current_timestamp() + poll_interval >= deadline { break }; if poll_interval > 0 { sleep(poll_interval) }; request_options["max_calls"] = options["max_calls"] - total_telemetry["attempts"]; request_options["retries"] = 0; polled := request_json(result_endpoint, dict_get(pagination, "poll_method", "GET"), null, poll_headers, request_options, options["transport"]); if !polled["ok"] { return polled }; item_telemetry := polled["value"]["telemetry"]; for field in ["attempts", "retries", "latency_ms", "retry_delay_ms", "response_bytes"] { total_telemetry[field] = total_telemetry[field] + item_telemetry[field] }; total_telemetry["cache_status"] = item_telemetry["cache_status"]; total_telemetry["provider_cost"] = item_telemetry["provider_cost"]; polls = polls + 1; polled_body := polled["value"]["body"]; poll_status := json_pointer(polled_body, pagination["status_pointer"])
 				if poll_status == pagination["completed_value"] { completed_body = json_pointer(polled_body, pagination["result_pointer"]) }
 				else if poll_status == pagination["failed_value"] { return failure("provider task failed") }
 				else if poll_status != pagination["pending_value"] { return failure("provider task returned an unknown status") }
@@ -298,6 +345,8 @@ export func run_signed_adapter(options) {
 	capabilities := split(options["adapter_allow_capabilities"], ","); endpoints := split(options["adapter_allow_endpoints"], ","); credentials := split(options["adapter_allow_credentials"], ",")
 	loaded := load_signed_adapter(options["adapter_manifest"], options["adapter_signature"], options["adapter_key_env"], capabilities, endpoints, credentials)
 	if !loaded["ok"] { return loaded }; adapter := loaded["value"]; capability := options["capability"]
+	adapter_id := dict_get(adapter, "id", dict_get(adapter, "name", ""))
+	if dict_get(options, "invocation_command", "") == "fetch" && options["provider"] != adapter_id { return failure("external adapter id does not match --provider") }
 	if dict_get(adapter, "contract", "") == "searchbridge-adapter/v2" { return run_signed_adapter_v2(adapter, options) }
 	if !includes(adapter["capabilities"], capability) { return failure("adapter does not implement requested capability") }
 	preflight := cost_preflight(adapter["cost_class"], options["fixture"], options["allow_paid"], options["max_calls"], options["max_provider_units"]); if !preflight["ok"] { return preflight }
@@ -311,9 +360,9 @@ export func run_signed_adapter(options) {
 	if options["fixture"] { raw_result = success({"body": dict_get(adapter, "fixture_response", {"rows": []}), "telemetry": {"attempts": 0, "retries": 0, "latency_ms": 0, "retry_delay_ms": 0, "response_bytes": 0, "cache_status": "fixture", "provider_cost": {}}}) }
 	else { raw_result = request_json(endpoint, method, dict_get(request, "body", null), headers, options, options["transport"]) }
 	if !raw_result["ok"] { return raw_result }
-	body := raw_result["value"]["body"]; rows_field := dict_get(adapter["normalization"], "rows_field", "rows"); rows := dict_get(body, rows_field, [])
+	body := raw_result["value"]["body"]; rows_field := dict_get(adapter["normalization"], "rows_field", "rows"); mut rows := dict_get(body, rows_field, []); if type(rows) != "array" { return failure("adapter response rows must be an array") }; if len(rows) > options["max_total_rows"] { rows = slice(rows, 0, options["max_total_rows"]) }
 	mut run_mode := "live"; if options["fixture"] { run_mode = "fixture" }; mut retrieved_at := now_utc(); if options["deterministic"] { retrieved_at = "1970-01-01T00:00:00Z" }
-	return success({"schema": "searchbridge.result/v1", "capability": capability, "provider": adapter["name"], "mode": run_mode, "retrieved_at": retrieved_at, "rows": rows, "adapter_manifest_hash": sha256(read_file(options["adapter_manifest"])), "telemetry": raw_result["value"]["telemetry"]})
+	return success({"schema": "searchbridge.result/v1", "capability": capability, "provider": adapter["name"], "mode": run_mode, "retrieved_at": retrieved_at, "rows": rows, "adapter_manifest_hash": loaded["manifest_hash"], "telemetry": raw_result["value"]["telemetry"]})
 }
 
 func includes(values, needle) { for value in values { if value == needle { return true } }; return false }

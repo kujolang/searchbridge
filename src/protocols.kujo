@@ -1,7 +1,7 @@
 from src.core import failure, success, clean_error, utf8_size, dict_get, includes
 
 export func validate_exact_endpoint(url, template, allow_query) {
-	if !starts_with(url, "https://") || contains(url, "@") || contains(url, "#") || !regex_match(url, "^[ -~]+$") { return failure("provider endpoint must be safe ASCII HTTPS without user-info or fragments") }
+	if !starts_with(url, "https://") || contains(url, "@") || contains(url, "#") || !regex_match(url, "^[!-~]+$") || contains(url, "\\") { return failure("provider endpoint must be safe ASCII HTTPS without user-info or fragments") }
 	lowered := to_lower(url)
 	for denied in ["https://localhost", "https://127.", "https://10.", "https://192.168.", "https://169.254.", "https://172.16.", "https://172.17.", "https://172.18.", "https://172.19.", "https://172.20.", "https://172.21.", "https://172.22.", "https://172.23.", "https://172.24.", "https://172.25.", "https://172.26.", "https://172.27.", "https://172.28.", "https://172.29.", "https://172.30.", "https://172.31.", "https://[::1]", "https://[fc", "https://[fd", "https://[fe80", "https://0.0.0.0"] { if starts_with(lowered, denied) { return failure("provider endpoint resolves to a denied destination") } }
 	if url == template { return success(url) }
@@ -17,7 +17,7 @@ export func validate_template_endpoint(url, template, slot, value) {
 
 export func cost_preflight(cost_class, fixture_mode, allow_paid, max_calls, max_units) {
 	if fixture_mode { return success({"estimated_calls": 0, "estimated_provider_units": 0}) }
-	if includes(["metered", "expensive", "unknown"], cost_class) && (!allow_paid || max_calls < 1 || max_units < 1) { return failure("paid or unknown live provider requires --allow-paid, --max-calls, and sufficient --max-provider-units") }
+	if includes(["metered", "expensive", "unknown"], cost_class) && (!allow_paid || max_calls < 1 || !(max_units >= 1 && max_units - max_units == 0)) { return failure("paid or unknown live provider requires --allow-paid, --max-calls, and sufficient --max-provider-units") }
 	if max_calls < 1 { return failure("live provider requires a positive --max-calls budget") }
 	return success({"estimated_calls": 1, "estimated_provider_units": 1})
 }
