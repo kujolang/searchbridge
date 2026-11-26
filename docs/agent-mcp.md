@@ -9,10 +9,9 @@ CLI without a shell, and returns both text and structured JSON content. Set
 `SEARCHBRIDGE_BIN` only when the CLI launcher is installed elsewhere.
 Set `SEARCHBRIDGE_MCP_EVIDENCE_ROOT` to the canonical directory that the local
 evidence-query tool may read. The server omits `searchbridge_query` when this
-root is absent and rejects path escapes, symlinks, and non-regular files.
+root is absent. The CLI opens the requested relative JSONL file beneath that root without following symlinks, reads at most 8 MiB, and hashes the same bytes it queries.
 The server negotiates MCP `2025-11-25` and `2025-06-18`, caps each inbound
-message at 4 MiB (independently of pipe chunk boundaries), bounds retained child
-stderr to 64 KiB, honors stdout backpressure, and writes no non-protocol data to stdout.
+message at 4 MiB (independently of pipe chunk boundaries), limits child stdout to 2 MB, and sets a 125-second execution deadline. It returns a bounded status for child failures and honors stdout backpressure.
 
 For `searchbridge_fetch`, fixture calls may omit `max_calls`; live calls must
 supply an integer from 1 to 1,000. Optional `property`, `start_date`, `end_date`,

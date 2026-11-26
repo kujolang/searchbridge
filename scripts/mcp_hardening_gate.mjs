@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -45,5 +45,14 @@ try {
   const query = { jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'searchbridge_query', arguments: { evidence_path: '..evidence' } } };
   const contained = await exchange(JSON.stringify(query) + '\n', { SEARCHBRIDGE_BIN: mock, SEARCHBRIDGE_MCP_EVIDENCE_ROOT: directory });
   assert.equal(contained.responses[0].result.isError, false);
+  const queryArgs = contained.responses[0].result.structuredContent.args;
+  assert(queryArgs.includes('--evidence-root=' + await realpath(directory)));
+  assert(queryArgs.includes('--evidence-path=..evidence'));
+  const failure = join(directory, 'failing-cli');
+  await writeFile(failure, '#!/usr/bin/env node\nprocess.stderr.write("synthetic private output");process.exitCode=2;\n', { mode: 0o700 });
+  const failed = await exchange(JSON.stringify(call(11, args)) + '\n', { SEARCHBRIDGE_BIN: failure });
+  assert.equal(failed.responses[0].result.isError, true);
+  assert.match(failed.responses[0].result.content[0].text, /status 2/);
+  assert.doesNotMatch(JSON.stringify(failed), /synthetic private output/);
   console.log('MCP live budgets, argument validation, per-message framing, and contained dot paths passed.');
 } finally { await rm(directory, { recursive: true, force: true }); }

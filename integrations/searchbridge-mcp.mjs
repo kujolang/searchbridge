@@ -14,6 +14,9 @@ const visibleTools = catalog.tools.filter((tool) => tool.name !== 'searchbridge_
 const tools = new Map(visibleTools.map((tool) => [tool.name, tool]));
 const protocolVersions = ['2025-11-25', '2025-06-18'];
 const maxMessageBytes = 4 * 1024 * 1024;
+const maxChildOutputBytes = 2_000_000;
+const maxChildTimeMs = 125_000;
+const maxArgumentBytes = 100_000;
 
 function error(code, message, data) {
   return { code, message, ...(data === undefined ? {} : { data }) };
@@ -40,7 +43,15 @@ function containedEvidencePath(inputPath) {
   const canonical = realpathSync(requested);
   const canonicalRelative = relative(evidenceRoot, canonical);
   if ((canonicalRelative === '..' || canonicalRelative.startsWith(`..${sep}`)) || isAbsolute(canonicalRelative) || !lstatSync(canonical).isFile()) throw new Error('evidence_path must be a contained regular file');
-  return canonical;
+  return lexical;
+}
+
+function boundedString(value, field, maximum = 8192) {
+  if (typeof value !== 'string' || value.length === 0 ||
+      Buffer.byteLength(value) > maximum || /[\x00-\x1f\x7f]/.test(value)) {
+    throw new Error(`${field} must be a bounded string without control characters`);
+  }
+  return value;
 }
 
 function argumentsFor(name, input) {
@@ -49,25 +60,24 @@ function argumentsFor(name, input) {
   if (!schema || Object.keys(input).some((key) => !Object.hasOwn(schema.properties || {}, key))) throw new Error('unknown tool argument');
   if (name === 'searchbridge_catalog') return ['agent-catalog'];
   if (name === 'searchbridge_fetch') {
-    if (typeof input.capability !== 'string' || typeof input.provider !== 'string') throw new Error('capability and provider are required strings');
-    const args = ['fetch', '--capability', input.capability, '--provider', input.provider, '--max-total-rows', String(boundedInteger(input.max_total_rows, 100))];
+    const args = ['fetch', `--capability=${boundedString(input.capability, 'capability', 128)}`,
+      `--provider=${boundedString(input.provider, 'provider', 128)}`, '--max-total-rows', String(boundedInteger(input.max_total_rows, 100))];
     if (input.fixture !== undefined && typeof input.fixture !== 'boolean') throw new Error('fixture must be a boolean');
     if (input.fixture === true) args.push('--fixture', '--offline');
     if (input.max_calls !== undefined || input.fixture !== true) args.push('--max-calls', String(boundedCalls(input.max_calls)));
     args.push('--max-output-tokens', '25000');
     for (const field of ['property', 'start_date', 'end_date', 'url']) {
       if (input[field] === undefined) continue;
-      if (typeof input[field] !== 'string' || input[field].length === 0 || input[field].length > 8192 || /[\x00-\x1f\x7f]/.test(input[field])) throw new Error(`${field} must be a bounded string without control characters`);
-      args.push(`--${field.replaceAll('_', '-')}=${input[field]}`);
+      args.push(`--${field.replaceAll('_', '-')}=${boundedString(input[field], field)}`);
     }
     return args;
   }
 	if (name === 'searchbridge_query') {
-	  if (typeof input.evidence_path !== 'string' || input.evidence_path.length === 0) throw new Error('evidence_path is required');
-	  const args = ['evidence-query', '--evidence-path', containedEvidencePath(input.evidence_path), '--max-total-rows', String(boundedInteger(input.max_total_rows, 100)), '--max-output-tokens', '25000'];
+	  const requested = boundedString(input.evidence_path, 'evidence_path');
+	  const args = ['evidence-query', `--evidence-root=${evidenceRoot}`, `--evidence-path=${containedEvidencePath(requested)}`, '--max-total-rows', String(boundedInteger(input.max_total_rows, 100)), '--max-output-tokens', '25000'];
     if (input.filter_field !== undefined || input.filter_equals !== undefined) {
-      if (typeof input.filter_field !== 'string' || typeof input.filter_equals !== 'string') throw new Error('filter_field and filter_equals must be supplied together');
-      args.push('--filter-field', input.filter_field, '--filter-equals', input.filter_equals);
+      args.push(`--filter-field=${boundedString(input.filter_field, 'filter_field', 256)}`,
+        `--filter-equals=${boundedString(input.filter_equals, 'filter_equals')}`);
     }
     return args;
   }
@@ -75,24 +85,44 @@ function argumentsFor(name, input) {
     if (input.capability !== 'index.submission' || input.act !== true || input.yes !== true) throw new Error('submission requires capability index.submission and explicit act/yes confirmation');
     if (!['indexnow', 'bing-webmaster'].includes(input.provider)) throw new Error('unsupported submission provider');
     if (!Array.isArray(input.urls) || input.urls.length < 1 || input.urls.length > 1000 || input.urls.some((url) => typeof url !== 'string')) throw new Error('urls must contain 1 to 1,000 strings');
-	  return ['submit', '--provider', input.provider, '--capability', 'index.submission', '--act', '--yes', '--max-calls', String(boundedCalls(input.max_calls)), ...input.urls.flatMap((url) => ['--url', url])];
+	  return ['submit', '--provider', input.provider, '--capability', 'index.submission', '--act', '--yes', '--max-calls', String(boundedCalls(input.max_calls)), ...input.urls.map((url) => `--url=${boundedString(url, 'url')}`)];
   }
   throw new Error('unknown tool');
 }
 
 function run(args) {
+  const bytes = args.reduce((total, arg) => total + Buffer.byteLength(arg) + 1, 0);
+  if (bytes > maxArgumentBytes) throw new Error('SearchBridge tool argument budget exceeded');
   return new Promise((accept, reject) => {
-    const child = spawn(executable, args, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
-    const chunks = []; const errors = []; let bytes = 0; let errorBytes = 0;
-    child.stdout.on('data', (chunk) => { bytes += chunk.length; if (bytes <= 2_000_000) chunks.push(chunk); else child.kill(); });
-    child.stderr.on('data', (chunk) => { const remaining = 65_536 - errorBytes; if (remaining > 0) { const kept = chunk.subarray(0, remaining); errors.push(kept); errorBytes += kept.length; } });
-    child.on('error', reject);
+    const child = spawn(executable, args, { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'ignore'], shell: false });
+    const chunks = [];
+    let outputBytes = 0;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, maxChildTimeMs);
+    timer.unref();
+    child.stdout.on('data', (chunk) => {
+      outputBytes += chunk.length;
+      if (outputBytes <= maxChildOutputBytes) chunks.push(chunk);
+      else child.kill('SIGKILL');
+    });
+    child.on('error', () => {
+      clearTimeout(timer);
+      reject(new Error('SearchBridge could not start'));
+    });
     child.on('close', (code) => {
-      const stderr = Buffer.concat(errors).toString('utf8').trim().slice(0, 65_536);
-      if (bytes > 2_000_000) return reject(new Error('SearchBridge output exceeded the MCP bridge limit'));
-      if (code !== 0) return reject(new Error(stderr || `SearchBridge exited ${code}`));
-      const text = Buffer.concat(chunks).toString('utf8').trim();
-      try { accept(JSON.parse(text)); } catch { reject(new Error('SearchBridge returned invalid JSON')); }
+      clearTimeout(timer);
+      if (timedOut) return reject(new Error('SearchBridge exceeded the MCP execution deadline'));
+      if (outputBytes > maxChildOutputBytes) return reject(new Error('SearchBridge output exceeded the MCP bridge limit'));
+      if (code !== 0) return reject(new Error(`SearchBridge command failed (status ${code ?? 'terminated'})`));
+      try {
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+        accept(JSON.parse(text));
+      } catch {
+        reject(new Error('SearchBridge returned invalid JSON'));
+      }
     });
   });
 }
