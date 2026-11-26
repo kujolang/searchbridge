@@ -9,8 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          persist-credentials: false
           repository: kujolang/kujo
           ref: 67e880a9688dd5770d4a67311d45aa551e6a6fd6
           path: .runtime/kujo
@@ -23,7 +26,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.23'
-      - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
+      - run: cargo build --release --locked --manifest-path .runtime/kujo/Cargo.toml
       - name: Prove generated SDK sources are current
         env:
           KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
@@ -31,7 +34,7 @@ jobs:
           "$KUJO_BIN" run scripts/generate_sdk_types.kujo
           git diff --exit-code -- sdk
           "$KUJO_BIN" run scripts/sdk_compatibility_gate.kujo
-      - run: npm install --ignore-scripts && npm run check
+      - run: npm ci --ignore-scripts && npm run check
         working-directory: sdk/typescript
       - run: cargo check --locked
         working-directory: sdk/rust
